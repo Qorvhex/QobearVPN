@@ -1,0 +1,148 @@
+name: Build QobearVPN APKs
+
+on:
+  push:
+    branches: [ main, master ]
+    tags: [ "v*" ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+    inputs:
+      version_name:
+        description: "Override versionName (e.g. 1.0.1)"
+        required: false
+        default: ""
+      create_release:
+        description: "Publish a GitHub Release with attached APKs"
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build & Verify Android APKs
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: "17"
+
+      - name: Cache OpenVPN 3 native sources
+        uses: actions/cache@v4
+        with:
+          path: |
+            third_party/openvpn3/*.zip
+            third_party/openvpn3/openvpn3-*
+            third_party/openvpn3/mbedtls-*
+            third_party/openvpn3/asio-*
+            third_party/openvpn3/lz4-*
+            third_party/openvpn3/fmt-*
+          key: openvpn3-${{ hashFiles('third_party/openvpn3/source-lock.json') }}
+
+      - name: Fetch and verify OpenVPN 3 native dependencies
+        run: python3 scripts/fetch_openvpn_deps.py
+
+      - name: Native C++ OpenVPN 3 profile check (all 47 TunnelBear .ovpn)
+        run: |
+          cmake -S app/src/main/cpp -B build/host-check \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+          cmake --build build/host-check --parallel $(nproc)
+          ./build/host-check/qobear_profile_check app/src/main/assets/profiles/*.ovpn
+
+      - name: Set up Android SDK, NDK, and CMake
+        uses: android-actions/setup-android@v4
+        with:
+          packages: >
+            platforms;android-35
+            build-tools;35.0.0
+            ndk;27.2.12479018
+            cmake;3.22.1
+
+      - name: Set up Gradle cache
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Make Gradle wrapper executable
+        run: chmod +x ./gradlew
+
+      - name: Compute build version metadata
+        id: meta
+        run: |
+          TAG_VER="${GITHUB_REF_NAME#v}"
+          if [ -n "${{ inputs.version_name }}" ]; then
+            VER="${{ inputs.version_name }}"
+          elif [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            VER="$TAG_VER"
+          else
+            VER="1.0.${GITHUB_RUN_NUMBER}"
+          fi
+          CODE=$((100 + GITHUB_RUN_NUMBER))
+          echo "version_name=$VER" >> "$GITHUB_OUTPUT"
+          echo "version_code=$CODE" >> "$GITHUB_OUTPUT"
+
+      - name: Run unit tests and Android Lint
+        run: ./gradlew testDebugUnitTest lintDebug lintVitalRelease --no-daemon
+
+      - name: Decode release keystore if configured
+        id: signing
+        run: |
+          IS_RELEASE_PUBLISH=false
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]] || [ "${{ inputs.create_release }}" == "true" ]; then
+            IS_RELEASE_PUBLISH=true
+          fi
+          if [ -n "${{ secrets.QOBEAR_KEYSTORE_BASE64 }}" ]; then
+            echo "${{ secrets.QOBEAR_KEYSTORE_BASE64 }}" | base64 -d > "${{ runner.temp }}/release.jks"
+            echo "keystore_path=${{ runner.temp }}/release.jks" >> "$GITHUB_OUTPUT"
+          elif [ "$IS_RELEASE_PUBLISH" == "true" ]; then
+            echo "::error::QOBEAR_KEYSTORE_BASE64 secret is required when publishing a Release."
+            exit 1
+          else
+            echo "No QOBEAR_KEYSTORE_BASE64 secret set; falling back to debug-signed release APKs for artifact preview."
+            echo "keystore_path=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build Debug and Release APKs (universal + arm64-v8a + armeabi-v7a)
+        env:
+          QOBEAR_VERSION_NAME: ${{ steps.meta.outputs.version_name }}
+          QOBEAR_VERSION_CODE: ${{ steps.meta.outputs.version_code }}
+          QOBEAR_KEYSTORE_PATH: ${{ steps.signing.outputs.keystore_path }}
+          QOBEAR_KEYSTORE_PASSWORD: ${{ secrets.QOBEAR_KEYSTORE_PASSWORD }}
+          QOBEAR_KEY_ALIAS: ${{ secrets.QOBEAR_KEY_ALIAS }}
+          QOBEAR_KEY_PASSWORD: ${{ secrets.QOBEAR_KEY_PASSWORD }}
+        run: ./gradlew assembleDebug assembleRelease --no-daemon
+
+      - name: Collect APK outputs
+        run: |
+          mkdir -p dist
+          find app/build/outputs/apk -type f -name "*.apk" -exec cp -v {} dist/ \;
+          ls -lh dist/
+
+      - name: Upload APK build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: QobearVPN-v${{ steps.meta.outputs.version_name }}-APKs
+          path: dist/*.apk
+          retention-days: 30
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v') || inputs.create_release == true
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.meta.outputs.version_name }}
+          name: QobearVPN v${{ steps.meta.outputs.version_name }}
+          generate_release_notes: true
+          files: dist/*.apk

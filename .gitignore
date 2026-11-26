@@ -1,0 +1,25 @@
+# Gradle & IDE
+.gradle/
+build/
+**/build/
+local.properties
+*.iml
+.idea/
+.DS_Store
+Thumbs.db
+
+# Native third-party archives fetched by scripts/fetch_openvpn_deps.py
+third_party/openvpn3/*/
+third_party/openvpn3/*.zip
+third_party/openvpn3/*.tar.gz
+.cxx/
+**/src/main/cpp/.cxx/
+
+# Python bytecode caches
+__pycache__/
+*.pyc
+
+# Signing keys (never commit release keystores)
+*.jks
+*.keystore
+signing.properties
