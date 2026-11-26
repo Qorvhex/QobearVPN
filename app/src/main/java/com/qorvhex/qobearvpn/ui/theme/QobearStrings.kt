@@ -37,6 +37,12 @@ class QobearStrings(val fa: Boolean) {
     val usernameLabel = if (fa) "نام کاربری / ایمیل TunnelBear" else "TunnelBear Email / Username"
     val passwordLabel = if (fa) "رمز عبور" else "Password"
     val createAccountHint = if (fa) "اکانت ندارید؟ ساخت حساب رایگان TunnelBear" else "Need an account? Sign up at TunnelBear"
+    val createAccountAppNote = if (fa) {
+        "اگر سایت اجازه ساخت اکانت جدید نداد، مستقیماً از داخل خود برنامه TunnelBear اکانت بسازید:"
+    } else {
+        "If the website blocks sign-up, create an account directly inside the official TunnelBear app:"
+    }
+    val openTunnelBearPlay = if (fa) "نصب / باز کردن TunnelBear در گوگل‌پلی" else "Open TunnelBear on Google Play"
     val finishAndEnter = if (fa) "ذخیره و ورود به برنامه" else "Save & Start"
     val credentialValidationError = if (fa) "لطفاً نام کاربری و رمز عبور معتبر وارد کنید." else "Enter a valid username and password."
 
@@ -137,6 +143,11 @@ class QobearStrings(val fa: Boolean) {
     val alwaysOnSystem = if (fa) "تنظیمات Always-On و Kill Switch اندروید" else "Android Always-On & Kill Switch"
     val batteryOpt = if (fa) "مستثنی کردن از محدودیت باتری" else "Disable Battery Optimization"
     val batteryExemptActive = if (fa) "معاف از محدودیت باتری (فعال)" else "Battery Exemption Active"
+    val vpnConnectedLockedHint = if (fa) {
+        "برای تغییر بایپس، DNS، LAN و ضدسانسور DPI ابتدا اتصال VPN را قطع کنید."
+    } else {
+        "Disconnect VPN first to modify Bypass, DNS, LAN, or DPI settings."
+    }
     val sectionAppearance = if (fa) "ظاهر و زبان" else "Appearance & Language"
     val themeLabel = if (fa) "تم برنامه" else "Theme"
     val languageLabel = if (fa) "زبان رابط" else "Language"

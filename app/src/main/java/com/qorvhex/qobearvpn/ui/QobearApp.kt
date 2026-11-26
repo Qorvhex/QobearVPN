@@ -339,8 +339,6 @@ fun QobearApp(vm: QobearViewModel = viewModel()) {
                                             },
                                             onOpenServers = { currentTab = MainTab.SERVERS },
                                             onPingSelected = vm::pingSingle,
-                                            onSelectBypassRegion = vm::setBypassRegion,
-                                            onToggleDpiBypass = vm::setDpiBypassEnabled,
                                             onOpenTelegram = {
                                                 if (!openTelegramChannel(context)) {
                                                     vm.showBanner("NO_INTENT_APP")
@@ -398,6 +396,7 @@ fun QobearApp(vm: QobearViewModel = viewModel()) {
                                         MainTab.SETTINGS -> SettingsScreen(
                                             catalog = catalog,
                                             settings = settings,
+                                            vpnActive = connection.active,
                                             strings = strings,
                                             onSaveAccount = vm::saveAccount,
                                             onSelectAccount = vm::selectAccount,

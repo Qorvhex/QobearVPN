@@ -27,6 +27,7 @@ import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Security
 import androidx.compose.material.icons.rounded.Terminal
 import androidx.compose.material.icons.rounded.Visibility
@@ -50,6 +51,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
@@ -79,6 +81,7 @@ import com.qorvhex.qobearvpn.ui.theme.VazirmatnFamily
 fun SettingsScreen(
     catalog: QobearCatalog,
     settings: AppSettings,
+    vpnActive: Boolean,
     strings: QobearStrings,
     onSaveAccount: (id: String?, user: String, pass: String) -> Unit,
     onSelectAccount: (String) -> Unit,
@@ -117,7 +120,7 @@ fun SettingsScreen(
     var showBypassSheet by remember { mutableStateOf(false) }
     var showCustomDnsDialog by remember { mutableStateOf(false) }
 
-    if (showBypassSheet) {
+    if (showBypassSheet && !vpnActive) {
         BypassRegionSheet(
             current = settings.bypassRegion,
             strings = strings,
@@ -138,7 +141,7 @@ fun SettingsScreen(
         )
     }
 
-    if (showCustomDnsDialog) {
+    if (showCustomDnsDialog && !vpnActive) {
         CustomDnsDialog(
             initial = settings.customDns,
             strings = strings,
@@ -263,25 +266,73 @@ fun SettingsScreen(
             modifier = Modifier.fillMaxWidth(),
         ) {
             Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                if (vpnActive) {
+                    Surface(
+                        color = palette.surfaceElevated,
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.dp, palette.borderHairline),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Lock,
+                                contentDescription = null,
+                                tint = palette.textSecondary,
+                                modifier = Modifier.size(16.dp),
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                text = strings.vpnConnectedLockedHint,
+                                color = palette.textSecondary,
+                                fontSize = 11.sp,
+                            )
+                        }
+                    }
+                }
+
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(12.dp))
-                        .clickable { showBypassSheet = true }
+                        .clickable(enabled = !vpnActive) { showBypassSheet = true }
                         .padding(vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text(settings.bypassRegion.flag, fontSize = 22.sp)
+                    Text(
+                        text = settings.bypassRegion.flag,
+                        fontSize = 22.sp,
+                        modifier = Modifier.alpha(if (vpnActive) 0.45f else 1f),
+                    )
                     Spacer(Modifier.width(10.dp))
                     Column(modifier = Modifier.weight(1f)) {
-                        Text(strings.regionTitle(settings.bypassRegion), color = palette.textPrimary, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                        Text(strings.regionDesc(settings.bypassRegion), color = palette.textSecondary, fontSize = 11.sp)
+                        Text(
+                            text = strings.regionTitle(settings.bypassRegion),
+                            color = if (vpnActive) palette.disabledText else palette.textPrimary,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Text(
+                            text = strings.regionDesc(settings.bypassRegion),
+                            color = if (vpnActive) palette.disabledText else palette.textSecondary,
+                            fontSize = 11.sp,
+                        )
                     }
-                    Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = palette.textSecondary)
+                    Icon(
+                        imageVector = Icons.Rounded.ChevronRight,
+                        contentDescription = null,
+                        tint = if (vpnActive) palette.disabledText else palette.textSecondary,
+                    )
                 }
 
                 // DNS Selector Capsules
-                Text(strings.dnsLabel, color = palette.textSecondary, fontSize = 12.sp)
+                Text(
+                    text = strings.dnsLabel,
+                    color = if (vpnActive) palette.disabledText else palette.textSecondary,
+                    fontSize = 12.sp,
+                )
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -293,19 +344,28 @@ fun SettingsScreen(
                         Surface(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(999.dp))
-                                .clickable {
+                                .clickable(enabled = !vpnActive) {
                                     if (preset == DnsPreset.CUSTOM) showCustomDnsDialog = true
                                     else onSetDns(preset, settings.customDns)
                                 },
-                            color = if (active) palette.nothingRed else palette.surfaceElevated,
+                            color = when {
+                                vpnActive -> palette.disabledSurface
+                                active -> palette.nothingRed
+                                else -> palette.surfaceElevated
+                            },
                             shape = RoundedCornerShape(999.dp),
+                            border = if (vpnActive) BorderStroke(1.dp, palette.borderHairline) else null,
                         ) {
                             Text(
                                 text = preset.id.uppercase(),
                                 style = TextStyle(
                                     fontFamily = SpaceMonoFamily,
                                     fontSize = 11.sp,
-                                    color = if (active) palette.onAccent else palette.textPrimary,
+                                    color = when {
+                                        vpnActive -> palette.disabledText
+                                        active -> palette.onAccent
+                                        else -> palette.textPrimary
+                                    },
                                 ),
                                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
                             )
@@ -313,10 +373,16 @@ fun SettingsScreen(
                     }
                 }
 
-                ToggleRow(strings.lanBypassLabel, settings.lanBypass, onSetLanBypass)
-                ToggleRow(strings.autoReconnectLabel, settings.autoReconnect, onSetAutoReconnect)
-                ToggleRow(strings.dpiBypassLabel, settings.dpiBypassEnabled, onSetDpiBypass, subtitle = strings.dpiBypassSub)
-                ToggleRow(strings.autoServerLabel, settings.autoConnectBestServer, onSetAutoServer)
+                ToggleRow(strings.lanBypassLabel, settings.lanBypass, onSetLanBypass, enabled = !vpnActive)
+                ToggleRow(strings.autoReconnectLabel, settings.autoReconnect, onSetAutoReconnect, enabled = true)
+                ToggleRow(
+                    label = strings.dpiBypassLabel,
+                    checked = settings.dpiBypassEnabled,
+                    onCheckedChange = onSetDpiBypass,
+                    subtitle = strings.dpiBypassSub,
+                    enabled = !vpnActive,
+                )
+                ToggleRow(strings.autoServerLabel, settings.autoConnectBestServer, onSetAutoServer, enabled = true)
 
                 // Always-on VPN & Kill Switch system settings
                 ActionRow(
@@ -441,6 +507,7 @@ private fun ToggleRow(
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
     subtitle: String? = null,
+    enabled: Boolean = true,
 ) {
     val palette = LocalNothingPalette.current
     Row(
@@ -449,19 +516,34 @@ private fun ToggleRow(
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
         Column(modifier = Modifier.weight(1f)) {
-            Text(text = label, color = palette.textPrimary, fontSize = 13.sp)
+            Text(
+                text = label,
+                color = if (enabled) palette.textPrimary else palette.disabledText,
+                fontSize = 13.sp,
+            )
             if (!subtitle.isNullOrBlank()) {
                 Spacer(Modifier.height(2.dp))
-                Text(text = subtitle, color = palette.textSecondary, fontSize = 11.sp)
+                Text(
+                    text = subtitle,
+                    color = if (enabled) palette.textSecondary else palette.disabledText,
+                    fontSize = 11.sp,
+                )
             }
         }
         Spacer(Modifier.width(8.dp))
         Switch(
             checked = checked,
             onCheckedChange = onCheckedChange,
+            enabled = enabled,
             colors = SwitchDefaults.colors(
                 checkedThumbColor = palette.onAccent,
                 checkedTrackColor = palette.nothingRed,
+                disabledCheckedThumbColor = palette.disabledText,
+                disabledCheckedTrackColor = palette.disabledSurface,
+                disabledUncheckedThumbColor = palette.disabledText,
+                disabledUncheckedTrackColor = palette.disabledSurface,
+                disabledCheckedBorderColor = palette.borderHairline,
+                disabledUncheckedBorderColor = palette.borderHairline,
             ),
         )
     }
@@ -498,6 +580,7 @@ private fun AccountEditorDialog(
     onConfirm: (String, String) -> Unit,
 ) {
     val palette = LocalNothingPalette.current
+    val context = LocalContext.current
     var user by remember { mutableStateOf(existing?.username.orEmpty()) }
     var pass by remember { mutableStateOf("") }
     var visible by remember { mutableStateOf(false) }
@@ -529,6 +612,21 @@ private fun AccountEditorDialog(
                         }
                     },
                 )
+                TextButton(
+                    onClick = {
+                        val market = Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=com.tunnelbear.android"))
+                        val web = Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/apps/details?id=com.tunnelbear.android"))
+                        if (runCatching { context.startActivity(market); true }.getOrDefault(false).not()) {
+                            runCatching { context.startActivity(web) }
+                        }
+                    },
+                ) {
+                    Text(
+                        text = strings.openTunnelBearPlay,
+                        color = palette.nothingRed,
+                        fontSize = 12.sp,
+                    )
+                }
             }
         },
         confirmButton = {

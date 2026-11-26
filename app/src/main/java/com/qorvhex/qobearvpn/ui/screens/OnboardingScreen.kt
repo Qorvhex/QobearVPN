@@ -33,6 +33,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material.icons.rounded.VisibilityOff
@@ -436,6 +437,44 @@ fun OnboardingScreen(
                             fontSize = 13.sp,
                         )
                     }
+
+                    Spacer(Modifier.height(6.dp))
+
+                    Surface(
+                        color = palette.surfaceCard,
+                        shape = RoundedCornerShape(16.dp),
+                        border = BorderStroke(1.dp, palette.borderHairline),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Column(modifier = Modifier.padding(14.dp)) {
+                            Text(
+                                text = strings.createAccountAppNote,
+                                color = palette.textSecondary,
+                                fontSize = 12.sp,
+                            )
+                            Spacer(Modifier.height(10.dp))
+                            OutlinedButton(
+                                onClick = { openTunnelBearPlayStore(context) },
+                                shape = RoundedCornerShape(999.dp),
+                                border = BorderStroke(1.dp, palette.nothingRed),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = palette.textPrimary),
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Download,
+                                    contentDescription = null,
+                                    tint = palette.nothingRed,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    text = strings.openTunnelBearPlay,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium,
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -495,6 +534,20 @@ fun OnboardingScreen(
                     Text(text = strings.finishAndEnter, fontSize = 15.sp, fontWeight = FontWeight.Bold)
                 }
             }
+        }
+    }
+}
+
+private fun openTunnelBearPlayStore(context: android.content.Context) {
+    val marketUri = Uri.parse("market://details?id=com.tunnelbear.android")
+    val webUri = Uri.parse("https://play.google.com/store/apps/details?id=com.tunnelbear.android")
+    val openedMarket = runCatching {
+        context.startActivity(Intent(Intent.ACTION_VIEW, marketUri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        true
+    }.getOrDefault(false)
+    if (!openedMarket) {
+        runCatching {
+            context.startActivity(Intent(Intent.ACTION_VIEW, webUri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         }
     }
 }

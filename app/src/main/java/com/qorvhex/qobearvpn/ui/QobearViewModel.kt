@@ -10,6 +10,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.core.graphics.drawable.toBitmap
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.qorvhex.qobearvpn.core.ConfigArchiveExtractor
 import com.qorvhex.qobearvpn.core.OpenVpnLatency
 import com.qorvhex.qobearvpn.core.ProfileImporter
 import com.qorvhex.qobearvpn.core.ProfileRuntime
@@ -401,10 +402,10 @@ class QobearViewModel(app: Application) : AndroidViewModel(app) {
     fun importOvpnUris(uris: List<Uri>) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                require(uris.size <= 60)
+                require(uris.size <= ConfigArchiveExtractor.MAX_SELECTED_ITEMS)
                 val resolver = getApplication<Application>().contentResolver
-                val files = linkedMapOf<String, String>()
-                var totalBytes = 0
+                val rawInputs = ArrayList<Pair<String, ByteArray>>(uris.size)
+                var totalRawBytes = 0
                 for ((idx, uri) in uris.withIndex()) {
                     val rawName = runCatching {
                         resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
@@ -412,33 +413,22 @@ class QobearViewModel(app: Application) : AndroidViewModel(app) {
                         }
                     }.getOrNull() ?: uri.lastPathSegment?.substringAfterLast('/') ?: "profile_${idx + 1}.ovpn"
 
-                    var name = rawName.replace('/', '_').replace('\\', '_').trim()
-                        .ifEmpty { "profile_${idx + 1}.ovpn" }
-                        .take(160)
-                    if (name in files) name = "${idx + 1}-$name".take(160)
-
                     val bytes = resolver.openInputStream(uri)?.use { stream ->
                         val out = ByteArrayOutputStream()
                         val buf = ByteArray(8192)
                         while (true) {
                             val n = stream.read(buf)
                             if (n < 0) break
-                            require(out.size() + n <= ProfileImporter.MAX_BYTES)
+                            totalRawBytes += n
+                            require(totalRawBytes <= ConfigArchiveExtractor.MAX_TOTAL_BYTES) { "Import size limit exceeded" }
                             out.write(buf, 0, n)
                         }
                         out.toByteArray()
                     } ?: error("Unreadable file")
 
-                    totalBytes += bytes.size
-                    require(totalBytes <= 8_388_608)
-                    val text = bytes.toString(Charsets.UTF_8)
-                    val looksOvpn = Regex("(?m)^\\s*remote\\s+\\S+").containsMatchIn(text) &&
-                        (Regex("(?m)^\\s*client\\s*$").containsMatchIn(text) || text.contains("<ca>"))
-                    if (looksOvpn && !name.endsWith(".ovpn", true) && !name.endsWith(".ovpn.txt", true)) {
-                        name = name.substringBeforeLast('.').ifEmpty { name } + ".ovpn"
-                    }
-                    files[name] = text
+                    rawInputs += rawName to bytes
                 }
+                val files = ConfigArchiveExtractor.collectFromInputs(rawInputs)
                 val summary = repo.importFiles(files)
                 _bannerMessage.value = when {
                     summary.errors.isNotEmpty() -> "IMPORT_ERROR:${summary.errors.first()}"

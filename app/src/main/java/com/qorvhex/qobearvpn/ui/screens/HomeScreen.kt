@@ -25,11 +25,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AutoAwesome
-import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.ErrorOutline
-import androidx.compose.material.icons.rounded.KeyboardArrowDown
-import androidx.compose.material.icons.rounded.Shield
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
@@ -39,7 +36,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -52,12 +48,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.qorvhex.qobearvpn.data.AppSettings
 import com.qorvhex.qobearvpn.data.QobearCatalog
-import com.qorvhex.qobearvpn.model.BypassRegion
 import com.qorvhex.qobearvpn.model.ConnectionPhase
 import com.qorvhex.qobearvpn.model.CountryGeoMapper
 import com.qorvhex.qobearvpn.model.OpenVpnConnection
 import com.qorvhex.qobearvpn.model.Profile
-import com.qorvhex.qobearvpn.ui.components.BypassRegionSheet
 import com.qorvhex.qobearvpn.ui.components.DotMatrixConnectDial
 import com.qorvhex.qobearvpn.ui.components.QorvhexTelegramBadge
 import com.qorvhex.qobearvpn.ui.components.SpeedSparklineCard
@@ -81,13 +75,10 @@ fun HomeScreen(
     onAutoBestClick: () -> Unit,
     onOpenServers: () -> Unit,
     onPingSelected: (Profile) -> Unit,
-    onSelectBypassRegion: (BypassRegion) -> Unit,
-    onToggleDpiBypass: (Boolean) -> Unit,
     onOpenTelegram: () -> Unit,
     onOpenAccountSettings: () -> Unit,
 ) {
     val palette = LocalNothingPalette.current
-    var showBypassSheet by remember { mutableStateOf(false) }
 
     val selectedProfile: Profile? = remember(catalog.profiles, catalog.selectedProfileId, connection.profileId) {
         val activeId = connection.profileId ?: catalog.selectedProfileId
@@ -103,15 +94,6 @@ fun HomeScreen(
                 delay(1_000L)
             }
         }
-    }
-
-    if (showBypassSheet) {
-        BypassRegionSheet(
-            current = settings.bypassRegion,
-            strings = strings,
-            onSelect = onSelectBypassRegion,
-            onDismiss = { showBypassSheet = false },
-        )
     }
 
     Column(
@@ -155,78 +137,7 @@ fun HomeScreen(
             )
         }
 
-        Spacer(Modifier.height(14.dp))
-
-        // Quick Bypass Region + Independent DPI Anti-Censorship Pills
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Surface(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(999.dp))
-                    .clickable { showBypassSheet = true },
-                color = palette.surfaceCard,
-                shape = RoundedCornerShape(999.dp),
-                border = BorderStroke(1.dp, palette.borderHairline),
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 13.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(text = settings.bypassRegion.flag, fontSize = 15.sp)
-                    Spacer(Modifier.width(6.dp))
-                    Text(
-                        text = "${strings.bypassModeChip}: ${strings.regionTitle(settings.bypassRegion)}",
-                        color = palette.textPrimary,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Medium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Spacer(Modifier.width(4.dp))
-                    Icon(
-                        imageVector = Icons.Rounded.KeyboardArrowDown,
-                        contentDescription = null,
-                        tint = palette.textSecondary,
-                        modifier = Modifier.size(16.dp),
-                    )
-                }
-            }
-
-            Surface(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(999.dp))
-                    .clickable { onToggleDpiBypass(!settings.dpiBypassEnabled) },
-                color = if (settings.dpiBypassEnabled) palette.surfaceElevated else palette.surfaceCard,
-                shape = RoundedCornerShape(999.dp),
-                border = BorderStroke(
-                    1.dp,
-                    if (settings.dpiBypassEnabled) palette.nothingRed else palette.borderHairline,
-                ),
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(
-                        imageVector = if (settings.dpiBypassEnabled) Icons.Rounded.CheckCircle else Icons.Rounded.Shield,
-                        contentDescription = null,
-                        tint = if (settings.dpiBypassEnabled) palette.nothingRed else palette.textSecondary,
-                        modifier = Modifier.size(15.dp),
-                    )
-                    Spacer(Modifier.width(5.dp))
-                    Text(
-                        text = strings.dpiBypassChip,
-                        color = if (settings.dpiBypassEnabled) palette.textPrimary else palette.textSecondary,
-                        fontSize = 12.sp,
-                        fontWeight = if (settings.dpiBypassEnabled) FontWeight.Bold else FontWeight.Medium,
-                        maxLines = 1,
-                    )
-                }
-            }
-        }
+        Spacer(Modifier.height(10.dp))
 
         AnimatedVisibility(
             visible = connection.phase == ConnectionPhase.ERROR && !connection.error.isNullOrBlank(),
