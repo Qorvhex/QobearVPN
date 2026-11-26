@@ -310,18 +310,20 @@ fun QobearApp(vm: QobearViewModel = viewModel()) {
                                                 } else {
                                                     val selected = catalog.profiles.firstOrNull { it.id == catalog.selectedProfileId }
                                                         ?: catalog.profiles.firstOrNull()
-                                                    val accountId = catalog.activeAccountId
-                                                    val needsAccount = !selected.selfContained || ProfileRuntime.isTunnelBear(selected)
-                                                    when {
-                                                        selected == null -> vm.showBanner("NO_PROFILES")
-                                                        accountId == null && needsAccount -> {
+                                                    if (selected == null) {
+                                                        vm.showBanner("NO_PROFILES")
+                                                    } else {
+                                                        val accountId = catalog.activeAccountId
+                                                        val needsAccount = !selected.selfContained || ProfileRuntime.isTunnelBear(selected)
+                                                        if (accountId == null && needsAccount) {
                                                             vm.showBanner("ACCOUNT_REQUIRED")
                                                             currentTab = MainTab.SETTINGS
+                                                        } else {
+                                                            requestConnect(
+                                                                selected,
+                                                                if (!needsAccount) OpenVpnRuntime.SELF_CREDENTIAL else accountId!!
+                                                            )
                                                         }
-                                                        else -> requestConnect(
-                                                            selected,
-                                                            if (!needsAccount) OpenVpnRuntime.SELF_CREDENTIAL else accountId!!
-                                                        )
                                                     }
                                                 }
                                             },
