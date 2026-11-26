@@ -6,7 +6,8 @@ object ProfileRuntime {
     const val TUNNELBEAR_TCP_PORT = 7011
 
     fun isTunnelBear(profile: Profile): Boolean =
-        profile.remotes.isNotEmpty() &&
+        !profile.isCustom &&
+            profile.remotes.isNotEmpty() &&
             profile.remotes.all { it.host.endsWith(".lazerpenguin.com", ignoreCase = true) }
 
     fun supportsTcpRelay(profile: Profile): Boolean =

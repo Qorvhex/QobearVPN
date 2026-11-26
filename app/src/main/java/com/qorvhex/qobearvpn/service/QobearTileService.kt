@@ -9,7 +9,6 @@ import android.service.quicksettings.TileService
 import androidx.core.service.quicksettings.PendingIntentActivityWrapper
 import androidx.core.service.quicksettings.TileServiceCompat
 import com.qorvhex.qobearvpn.MainActivity
-import com.qorvhex.qobearvpn.core.ProfileRuntime
 import com.qorvhex.qobearvpn.data.QobearRepository
 import com.qorvhex.qobearvpn.data.SettingsStore
 import com.qorvhex.qobearvpn.model.AppLanguage
@@ -73,11 +72,7 @@ class QobearTileService : TileService() {
             return
         }
 
-        val accountId = if (selected.selfContained && !ProfileRuntime.isTunnelBear(selected)) {
-            OpenVpnRuntime.SELF_CREDENTIAL
-        } else {
-            repo.activeAccountId
-        }
+        val accountId = OpenVpnRuntime.resolveAccountId(selected, repo.activeAccountId)
 
         if (accountId == null) {
             openApp()

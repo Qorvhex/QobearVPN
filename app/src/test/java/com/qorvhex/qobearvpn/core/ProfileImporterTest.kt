@@ -1,9 +1,11 @@
 package com.qorvhex.qobearvpn.core
 
 import com.qorvhex.qobearvpn.model.ProfileImportException
+import com.qorvhex.qobearvpn.service.OpenVpnRuntime
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
@@ -105,5 +107,30 @@ class ProfileImporterTest {
     @Test(expected = ProfileImportException::class)
     fun rejectsWeakNoneCipher() {
         ProfileImporter.parse("weak.ovpn", sampleTunnelBear.replace("cipher AES-256-CBC", "cipher none"))
+    }
+
+    @Test
+    fun customNonTunnelBearBareAuthUserPassRequiresInteractivePrompt() {
+        val customConfig = sampleTunnelBear.replace(
+            "remote de.lazerpenguin.com 7011 tcp-client",
+            "remote custom.vpn.example.org 1194 udp"
+        )
+        val parsed = ProfileImporter.parse("personal.ovpn", customConfig, isCustom = true)
+        assertTrue(parsed.isCustom)
+        assertFalse(ProfileRuntime.isTunnelBear(parsed))
+        assertFalse(parsed.selfContained)
+        assertFalse(parsed.hasSavedCredentials)
+    }
+
+    @Test
+    fun importedTunnelBearLookalikeDoesNotReceiveTunnelBearCredentials() {
+        val crafted = sampleTunnelBear.replace(
+            "remote de.lazerpenguin.com 7011 tcp-client",
+            "remote rogue.lazerpenguin.com 7011 tcp-client"
+        )
+        val parsed = ProfileImporter.parse("crafted.ovpn", crafted, isCustom = true)
+        assertTrue(parsed.isCustom)
+        assertFalse(ProfileRuntime.isTunnelBear(parsed))
+        assertNull(OpenVpnRuntime.resolveAccountId(parsed, "tb-account"))
     }
 }

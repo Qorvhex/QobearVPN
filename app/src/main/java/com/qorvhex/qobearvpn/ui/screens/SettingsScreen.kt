@@ -91,7 +91,6 @@ fun SettingsScreen(
     onSetLanBypass: (Boolean) -> Unit,
     onSetAutoReconnect: (Boolean) -> Unit,
     onSetDpiBypass: (Boolean) -> Unit,
-    onSetAutoServer: (Boolean) -> Unit,
     onSetTheme: (AppThemeMode) -> Unit,
     onSetLanguage: (AppLanguage) -> Unit,
     onOpenLogs: () -> Unit,
@@ -382,7 +381,6 @@ fun SettingsScreen(
                     subtitle = strings.dpiBypassSub,
                     enabled = !vpnActive,
                 )
-                ToggleRow(strings.autoServerLabel, settings.autoConnectBestServer, onSetAutoServer, enabled = true)
 
                 // Always-on VPN & Kill Switch system settings
                 ActionRow(

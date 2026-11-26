@@ -93,6 +93,7 @@ class QobearVpnService : VpnService() {
         val accountId: String? = null,
         val forceFallbackRelay: Boolean = false,
         val startId: Int = 0,
+        val preserveError: Boolean = false,
         val finished: Session? = null,
         val deadlineExpired: Session? = null,
     )
@@ -133,6 +134,7 @@ class QobearVpnService : VpnService() {
 
                 if (cmd.startId > 0) pendingStarts = (pendingStarts - 1).coerceAtLeast(0)
 
+                val prevProfileId = activeSession?.profileId
                 activeSession?.userStop()
                 val stoppedCleanly = withTimeoutOrNull(STOP_GRACE_MS) {
                     runningJob?.join()
@@ -147,10 +149,16 @@ class QobearVpnService : VpnService() {
                 }
                 runningJob = null
                 activeSession = null
+                if (prevProfileId != null && prevProfileId != cmd.profileId) {
+                    OpenVpnRuntime.clearTransientProfileCredentials(prevProfileId)
+                }
 
                 if (cmd.profileId == null || cmd.accountId == null) {
-                    OpenVpnRuntime.mutable.update {
-                        OpenVpnConnection(bypassRegion = settingsStore.settings.value.bypassRegion)
+                    OpenVpnRuntime.clearAllTransientProfileCredentials()
+                    if (!cmd.preserveError) {
+                        OpenVpnRuntime.mutable.update {
+                            OpenVpnConnection(bypassRegion = settingsStore.settings.value.bypassRegion)
+                        }
                     }
                     refreshQuickTile()
                     if (pendingStarts == 0 && latestStartId == cmd.startId) {
@@ -166,6 +174,9 @@ class QobearVpnService : VpnService() {
     }
 
     private fun handleSessionFinished(finished: Session, forceErrorIfNoFallback: String?) {
+        if (finished.accountId == OpenVpnRuntime.CUSTOM_PROFILE_CREDENTIAL) {
+            OpenVpnRuntime.clearTransientProfileCredentials(finished.profileId)
+        }
         val settings = settingsStore.settings.value
         val terminal = finished.terminalError ?: forceErrorIfNoFallback
 
@@ -203,29 +214,45 @@ class QobearVpnService : VpnService() {
             action == ACTION_SWITCH_BEST -> {
                 startForegroundCompat(buildTransitionNotification(isSwitching = true, isDisconnecting = false))
                 val catalog = repo.data.value
-                val best = ServerPolicy.fastest(catalog.profiles, System.currentTimeMillis(), allowStale = true)
-                    ?: catalog.profiles.firstOrNull { it.id == catalog.selectedProfileId }
-                    ?: catalog.profiles.firstOrNull()
+                val candidatePool = if (catalog.activeAccountId != null) {
+                    catalog.profiles
+                } else {
+                    catalog.profiles.filter { !ProfileRuntime.isTunnelBear(it) }
+                }
+                val best = ServerPolicy.fastest(candidatePool, System.currentTimeMillis(), allowStale = true)
+                    ?: candidatePool.firstOrNull { it.id == catalog.selectedProfileId }
+                    ?: candidatePool.firstOrNull()
                 if (best != null) {
                     val accountId = resolveSafeAccountId(best, catalog.activeAccountId)
                     if (accountId != null) {
-                        runCatching { repo.selectProfile(best.id) }
+                        runCatching { repo.selectProfile(best.id) }.onFailure {
+                            ConnectionLogStore.append(TAG, "selectProfile failed during switch: ${it.message}", isError = true)
+                        }
                         pendingStarts++
                         commands.trySend(Command(best.id, accountId, startId = startId))
                     } else {
+                        val isTb = ProfileRuntime.isTunnelBear(best)
                         OpenVpnRuntime.mutable.update {
                             OpenVpnConnection(
                                 phase = ConnectionPhase.ERROR,
+                                profileId = best.id,
                                 bypassRegion = settingsStore.settings.value.bypassRegion,
-                                error = "ACCOUNT_REQUIRED",
+                                error = if (isTb) "ACCOUNT_REQUIRED" else "CUSTOM_AUTH_FAILED",
                             )
                         }
                         pendingStarts++
-                        commands.trySend(Command(startId = startId))
+                        commands.trySend(Command(startId = startId, preserveError = true))
                     }
                 } else {
+                    OpenVpnRuntime.mutable.update {
+                        OpenVpnConnection(
+                            phase = ConnectionPhase.ERROR,
+                            bypassRegion = settingsStore.settings.value.bypassRegion,
+                            error = if (catalog.profiles.isEmpty()) "NO_PROFILES" else "ACCOUNT_REQUIRED",
+                        )
+                    }
                     pendingStarts++
-                    commands.trySend(Command(startId = startId))
+                    commands.trySend(Command(startId = startId, preserveError = true))
                 }
             }
             action == ACTION_CONNECT -> {
@@ -260,8 +287,20 @@ class QobearVpnService : VpnService() {
                     pendingStarts++
                     commands.trySend(Command(profile.id, accountId, startId = startId))
                 } else {
+                    OpenVpnRuntime.mutable.update {
+                        OpenVpnConnection(
+                            phase = ConnectionPhase.ERROR,
+                            profileId = profile?.id,
+                            bypassRegion = settingsStore.settings.value.bypassRegion,
+                            error = when {
+                                profile == null -> "NO_PROFILES"
+                                ProfileRuntime.isTunnelBear(profile) -> "ACCOUNT_REQUIRED"
+                                else -> "CUSTOM_AUTH_FAILED"
+                            },
+                        )
+                    }
                     pendingStarts++
-                    commands.trySend(Command(startId = startId))
+                    commands.trySend(Command(startId = startId, preserveError = true))
                 }
             }
             else -> {
@@ -274,14 +313,8 @@ class QobearVpnService : VpnService() {
         return START_NOT_STICKY
     }
 
-    private fun resolveSafeAccountId(profile: Profile, activeAccountId: String?): String? {
-        // Never transmit stored TunnelBear account credentials to non-TunnelBear self-contained profiles!
-        return if (profile.selfContained && !ProfileRuntime.isTunnelBear(profile)) {
-            OpenVpnRuntime.SELF_CREDENTIAL
-        } else {
-            activeAccountId
-        }
-    }
+    private fun resolveSafeAccountId(profile: Profile, activeAccountId: String?): String? =
+        OpenVpnRuntime.resolveAccountId(profile, activeAccountId)
 
     override fun onRevoke() {
         activeSession?.userStop()
@@ -293,6 +326,7 @@ class QobearVpnService : VpnService() {
         shuttingDown = true
         OpenVpnRuntime.socketProtector = null
         OpenVpnRuntime.datagramProtector = null
+        OpenVpnRuntime.clearAllTransientProfileCredentials()
         unregisterPhysicalNetworkWatcher()
         activeSession?.userStop()
         commands.close()
@@ -354,7 +388,12 @@ class QobearVpnService : VpnService() {
                 val id = network.networkHandle
                 val prev = lastPhysicalNetworkId
                 lastPhysicalNetworkId = id
-                if (prev != null && prev != id && settingsStore.settings.value.autoReconnect) {
+                if (prev != null &&
+                    prev != id &&
+                    !shuttingDown &&
+                    activeSession?.userStopped != true &&
+                    settingsStore.settings.value.autoReconnect
+                ) {
                     val conn = OpenVpnRuntime.connection.value
                     if (conn.phase == ConnectionPhase.CONNECTED && conn.profileId != null && conn.accountId != null) {
                         ConnectionLogStore.append(TAG, "Default network changed; reconnecting tunnel")
@@ -453,15 +492,28 @@ class QobearVpnService : VpnService() {
                 val profile = catalog.profiles.firstOrNull { it.id == profileId }
                     ?: run { terminalError = "PROFILE_NOT_FOUND"; return }
 
-                // Enforce credential isolation regardless of caller intent extras
-                val selfContained = (profile.selfContained && !ProfileRuntime.isTunnelBear(profile)) ||
-                    accountId == OpenVpnRuntime.SELF_CREDENTIAL
-                if (selfContained && !profile.selfContained) {
+                // Enforce strict credential isolation regardless of caller intent extras
+                val isTb = ProfileRuntime.isTunnelBear(profile)
+                val useSelf = profile.selfContained && !isTb
+                val useCustom = !isTb && !useSelf && accountId == OpenVpnRuntime.CUSTOM_PROFILE_CREDENTIAL
+                if (!isTb && !useSelf && !useCustom) {
                     terminalError = "ACCOUNT_REQUIRED"
                     return
                 }
-                val account = if (selfContained) null else catalog.accounts.firstOrNull { it.id == accountId }
-                if (!selfContained && account == null) {
+                val customCreds = if (useCustom) {
+                    OpenVpnRuntime.transientProfileCredentials(profileId) ?: repo.profileCredentials(profileId)
+                } else {
+                    null
+                }
+                if (useCustom && customCreds == null) {
+                    runCatching { repo.clearProfileCredentials(profileId) }.onFailure {
+                        ConnectionLogStore.append(TAG, "Failed clearing missing custom creds: ${it.message}", isError = true)
+                    }
+                    terminalError = "CUSTOM_AUTH_FAILED"
+                    return
+                }
+                val account = if (useSelf || useCustom) null else catalog.accounts.firstOrNull { it.id == accountId }
+                if (!useSelf && !useCustom && account == null) {
                     terminalError = "ACCOUNT_REQUIRED"
                     return
                 }
@@ -471,8 +523,11 @@ class QobearVpnService : VpnService() {
                 }
 
                 val own = profile.ownCredentials
-                val username = if (selfContained) own?.first.orEmpty() else account!!.username
-                val password = if (selfContained) own?.second.orEmpty() else repo.password(accountId)
+                val (username, password) = when {
+                    useSelf -> own?.first.orEmpty() to own?.second.orEmpty()
+                    useCustom -> customCreds!!
+                    else -> account!!.username to repo.password(accountId)
+                }
 
                 val dnsServers = settingsStore.settings.value.effectiveDnsServers()
                 val validation = OpenVpnNative.evaluate(
@@ -537,6 +592,13 @@ class QobearVpnService : VpnService() {
 
                 ConnectionLogStore.append(TAG, "Starting OpenVPN 3 session (${bypassRegion.id})")
                 val err = OpenVpnNative.run(handle, effectiveConfig, username, password, this)
+                if (err == "CREDENTIALS_REJECTED" && accountId == OpenVpnRuntime.CUSTOM_PROFILE_CREDENTIAL) {
+                    terminalError = "CUSTOM_AUTH_FAILED"
+                    OpenVpnRuntime.clearTransientProfileCredentials(profileId)
+                    runCatching { repo.clearProfileCredentials(profileId) }.onFailure {
+                        ConnectionLogStore.append(TAG, "Failed clearing rejected custom creds: ${it.message}", isError = true)
+                    }
+                }
                 if (terminalError == null && err.isNotEmpty()) terminalError = err
             } catch (_: CancellationException) {
                 stopNative()
@@ -556,6 +618,9 @@ class QobearVpnService : VpnService() {
                 nativeHandle.getAndSet(0L).takeIf { it != 0L }?.let { OpenVpnNative.release(it) }
 
                 if (activeSession === this) {
+                    if (accountId == OpenVpnRuntime.CUSTOM_PROFILE_CREDENTIAL) {
+                        OpenVpnRuntime.clearTransientProfileCredentials(profileId)
+                    }
                     val nextPhase = if (terminalError != null && (!userStoppedFlag.get() || timedOut)) {
                         ConnectionPhase.ERROR
                     } else {
@@ -754,15 +819,29 @@ class QobearVpnService : VpnService() {
             }
 
             if (name == "AUTH_FAILED") {
-                terminalError = "AUTH_FAILED"
-                if (accountId != OpenVpnRuntime.SELF_CREDENTIAL) {
-                    runCatching {
-                        repo.updateAccount(accountId) {
-                            it.copy(auth = AuthState.FAILED, lastError = "AUTH_FAILED")
+                when (accountId) {
+                    OpenVpnRuntime.CUSTOM_PROFILE_CREDENTIAL -> {
+                        terminalError = "CUSTOM_AUTH_FAILED"
+                        OpenVpnRuntime.clearTransientProfileCredentials(profileId)
+                        runCatching { repo.clearProfileCredentials(profileId) }.onFailure {
+                            ConnectionLogStore.append(TAG, "Failed clearing bad custom creds: ${it.message}", isError = true)
+                        }
+                    }
+                    OpenVpnRuntime.SELF_CREDENTIAL -> {
+                        terminalError = "CUSTOM_AUTH_FAILED"
+                    }
+                    else -> {
+                        terminalError = "AUTH_FAILED"
+                        runCatching {
+                            repo.updateAccount(accountId) {
+                                it.copy(auth = AuthState.FAILED, lastError = "AUTH_FAILED")
+                            }
+                        }.onFailure {
+                            ConnectionLogStore.append(TAG, "Failed marking account auth failure: ${it.message}", isError = true)
                         }
                     }
                 }
-            } else if (error) {
+            } else if (error && terminalError == null) {
                 terminalError = when (name) {
                     "CERT_VERIFY_FAIL", "TLS_VERSION_MIN", "CONNECTION_TIMEOUT", "NETWORK_UNREACHABLE" -> name
                     else -> "CONNECTION_FAILED"
@@ -777,7 +856,9 @@ class QobearVpnService : VpnService() {
 
             if (name == "CONNECTED") {
                 terminalError = null
-                if (accountId != OpenVpnRuntime.SELF_CREDENTIAL) {
+                if (accountId != OpenVpnRuntime.SELF_CREDENTIAL &&
+                    accountId != OpenVpnRuntime.CUSTOM_PROFILE_CREDENTIAL
+                ) {
                     runCatching {
                         repo.updateAccount(accountId) {
                             it.copy(

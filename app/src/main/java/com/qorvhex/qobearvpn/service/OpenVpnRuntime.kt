@@ -3,14 +3,17 @@ package com.qorvhex.qobearvpn.service
 import android.content.Context
 import android.content.Intent
 import androidx.core.content.ContextCompat
+import com.qorvhex.qobearvpn.core.ProfileRuntime
 import com.qorvhex.qobearvpn.data.ConnectionLogStore
 import com.qorvhex.qobearvpn.model.OpenVpnConnection
+import com.qorvhex.qobearvpn.model.Profile
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import java.net.DatagramSocket
 import java.net.Socket
+import java.util.concurrent.ConcurrentHashMap
 
 object OpenVpnRuntime {
     internal val mutable = MutableStateFlow(OpenVpnConnection())
@@ -23,6 +26,42 @@ object OpenVpnRuntime {
     internal var datagramProtector: ((DatagramSocket) -> Boolean)? = null
 
     const val SELF_CREDENTIAL = "@profile"
+    const val CUSTOM_PROFILE_CREDENTIAL = "@custom"
+
+    private val transientCredentials = ConcurrentHashMap<String, Pair<String, String>>()
+
+    fun setTransientProfileCredentials(profileId: String, username: String, password: String) {
+        transientCredentials[profileId] = username to password
+    }
+
+    fun transientProfileCredentials(profileId: String): Pair<String, String>? =
+        transientCredentials[profileId]
+
+    fun hasTransientProfileCredentials(profileId: String): Boolean =
+        transientCredentials.containsKey(profileId)
+
+    fun clearTransientProfileCredentials(profileId: String) {
+        transientCredentials.remove(profileId)
+    }
+
+    fun clearAllTransientProfileCredentials() {
+        transientCredentials.clear()
+    }
+
+    fun resolveAccountId(profile: Profile, activeAccountId: String?): String? {
+        val isTb = ProfileRuntime.isTunnelBear(profile)
+        return when {
+            profile.selfContained && !isTb -> SELF_CREDENTIAL
+            !isTb -> {
+                if (profile.hasSavedCredentials || hasTransientProfileCredentials(profile.id)) {
+                    CUSTOM_PROFILE_CREDENTIAL
+                } else {
+                    null
+                }
+            }
+            else -> activeAccountId
+        }
+    }
 
     fun protect(socket: Socket): Boolean = socketProtector?.invoke(socket) ?: true
 

@@ -22,17 +22,17 @@ class QobearStrings(val fa: Boolean) {
     }
     val chooseBypassTitle = if (fa) "منطقه بایپس را انتخاب کنید" else "Choose Geo-Bypass Region"
     val chooseBypassSub = if (fa) {
-        "آی‌پی‌های داخلی کشور انتخاب‌شده و شبکه محلی بدون فیلترشکن مستقیم عبور می‌کنند و ترافیک بین‌الملل از VPN می‌گذرد."
+        "آی‌پی‌های داخلی کشور انتخاب‌شده بدون فیلترشکن مستقیم عبور می‌کنند و ترافیک بین‌الملل از VPN می‌گذرد."
     } else {
-        "Domestic IP blocks & LAN traffic route directly while international traffic goes through VPN."
+        "Domestic IP blocks route directly while international traffic goes through VPN."
     }
     val next = if (fa) "ادامه" else "Continue"
     val back = if (fa) "بازگشت" else "Back"
     val enterCredentialsTitle = if (fa) "اطلاعات اکانت TunnelBear" else "TunnelBear Credentials"
     val enterCredentialsSub = if (fa) {
-        "نام کاربری (ایمیل) و رمز عبور تانل‌بر خود را وارد کنید. اطلاعات با کلید سخت‌افزاری AndroidKeyStore رمزنگاری می‌شوند."
+        "نام کاربری (ایمیل) و رمز عبور تانل‌بر خود را وارد کنید یا برای استفاده از سرورهای شخصی این مرحله را رد کنید."
     } else {
-        "Enter your TunnelBear email and password. Stored encrypted inside AndroidKeyStore AES-GCM."
+        "Enter your TunnelBear email and password, or skip to use custom profiles directly."
     }
     val usernameLabel = if (fa) "نام کاربری / ایمیل TunnelBear" else "TunnelBear Email / Username"
     val passwordLabel = if (fa) "رمز عبور" else "Password"
@@ -44,7 +44,13 @@ class QobearStrings(val fa: Boolean) {
     }
     val openTunnelBearPlay = if (fa) "نصب / باز کردن TunnelBear در گوگل‌پلی" else "Open TunnelBear on Google Play"
     val finishAndEnter = if (fa) "ذخیره و ورود به برنامه" else "Save & Start"
+    val skipAndEnter = if (fa) "رد کردن و ورود به برنامه" else "Skip & Enter"
     val credentialValidationError = if (fa) "لطفاً نام کاربری و رمز عبور معتبر وارد کنید." else "Enter a valid username and password."
+    val credentialHalfFilledError = if (fa) {
+        "برای ثبت حساب تانل‌بر، هر دو فیلد نام کاربری و رمز عبور را کامل کنید یا هر دو را خالی بگذارید."
+    } else {
+        "Enter both username and password, or leave both blank to skip."
+    }
 
     // Bypass regions
     fun regionTitle(r: BypassRegion): String = when (r) {
@@ -56,19 +62,19 @@ class QobearStrings(val fa: Boolean) {
 
     fun regionDesc(r: BypassRegion): String = when (r) {
         BypassRegion.IRAN -> if (fa) {
-            "عبور مستقیم آی‌پی‌های ایران، سایت‌های داخلی و شبکه محلی"
+            "عبور مستقیم آی‌پی‌های ایران و سایت‌های داخلی"
         } else {
-            "Direct IR domestic routes & local network (LAN)"
+            "Direct IR domestic routes"
         }
         BypassRegion.CHINA -> if (fa) {
-            "عبور مستقیم آی‌پی‌های چین و شبکه محلی"
+            "عبور مستقیم آی‌پی‌های چین"
         } else {
-            "Direct CN domestic routes & local network (LAN)"
+            "Direct CN domestic routes"
         }
         BypassRegion.RUSSIA -> if (fa) {
-            "عبور مستقیم آی‌پی‌های روسیه و شبکه محلی"
+            "عبور مستقیم آی‌پی‌های روسیه"
         } else {
-            "Direct RU domestic routes & local network (LAN)"
+            "Direct RU domestic routes"
         }
         BypassRegion.GLOBAL -> if (fa) {
             "تونل کامل ۱۰۰٪ تمام ترافیک بدون بایپس کشوری"
@@ -108,8 +114,10 @@ class QobearStrings(val fa: Boolean) {
     val filterAll = if (fa) "همه" else "All"
     val filterFav = if (fa) "برگزیده‌ها" else "Favorites"
     val filterReachable = if (fa) "سالم‌ها" else "Reachable"
+    val filterCustom = if (fa) "شخصی" else "Custom"
     val sortPing = if (fa) "بر اساس پینگ" else "Fastest"
     val pingSingleHint = if (fa) "پینگ تکی" else "Ping"
+    val deleteCustomHint = if (fa) "حذف سرور" else "Delete"
     val importOvpn = if (fa) "افزودن .ovpn" else "Import .ovpn"
     val notTested = if (fa) "تست نشده" else "Untested"
     val blockedOrTimeout = if (fa) "بدون پاسخ" else "Blocked"
@@ -139,8 +147,19 @@ class QobearStrings(val fa: Boolean) {
     val autoReconnectLabel = if (fa) "اتصال خودکار هنگام تغییر شبکه" else "Auto-Reconnect on Network Switch"
     val dpiBypassLabel = if (fa) "ضدسانسور قوی (DPI Bypass)" else "DPI Anti-Censorship (Strong Bypass)"
     val dpiBypassSub = if (fa) "تنها در صورت فیلتر بودن یا وصل‌نشدن سرور فعال کنید" else "Enable if normal connection is blocked by DPI"
-    val autoServerLabel = if (fa) "پینگ خودکار هنگام نبود سرور سریع" else "Auto-Probe when Fastest Unknown"
     val alwaysOnSystem = if (fa) "تنظیمات Always-On و Kill Switch اندروید" else "Android Always-On & Kill Switch"
+
+    // Custom Server Authentication Dialog
+    val customAuthTitle = if (fa) "احراز هویت سرور شخصی" else "Server Authentication"
+    val customAuthSub = if (fa) {
+        "این سرور برای اتصال به نام کاربری و رمز عبور نیاز دارد."
+    } else {
+        "Enter the username and password required by this server."
+    }
+    val customUsernameLabel = if (fa) "نام کاربری" else "Username"
+    val savePasswordLabel = if (fa) "ذخیره رمز عبور برای دفعات بعدی" else "Save password"
+    val connectAction = if (fa) "اتصال" else "Connect"
+    val cancelAction = if (fa) "انصراف" else "Cancel"
     val batteryOpt = if (fa) "مستثنی کردن از محدودیت باتری" else "Disable Battery Optimization"
     val batteryExemptActive = if (fa) "معاف از محدودیت باتری (فعال)" else "Battery Exemption Active"
     val vpnConnectedLockedHint = if (fa) {
@@ -208,6 +227,7 @@ class QobearStrings(val fa: Boolean) {
     fun errorMessage(code: String?): String = when (code) {
         null -> ""
         "AUTH_FAILED" -> if (fa) "نام کاربری یا رمز عبور TunnelBear نادرست است." else "TunnelBear authentication failed."
+        "CUSTOM_AUTH_FAILED" -> if (fa) "نام کاربری یا رمز عبور سرور شخصی نادرست است." else "Custom server authentication failed."
         "ACCOUNT_REQUIRED" -> if (fa) "لطفاً ابتدا نام کاربری و رمز عبور TunnelBear را وارد کنید." else "Please configure your TunnelBear credentials first."
         "CONNECT_DEADLINE", "CONNECTION_TIMEOUT" -> if (fa) {
             "زمان اتصال به پایان رسید. ابتدا پینگ بگیرید یا سرور دیگری انتخاب کنید."

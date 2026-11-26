@@ -38,6 +38,11 @@ class QobearVault(context: Context) {
         return AtomicFile(File(directory, name))
     }
 
+    fun exists(name: String): Boolean {
+        val target = file(name)
+        return target.baseFile.exists() || File(target.baseFile.path + ".bak").exists()
+    }
+
     fun read(name: String): String? {
         val target = file(name)
         if (!target.baseFile.exists() && !File(target.baseFile.path + ".bak").exists()) return null
@@ -69,5 +74,14 @@ class QobearVault(context: Context) {
 
     fun remove(name: String) {
         file(name).delete()
+    }
+
+    fun removeMatchingPrefix(prefix: String) {
+        require(prefix.matches(Regex("[a-zA-Z0-9_-]{1,50}")))
+        directory.listFiles()?.forEach { f ->
+            if (f.name.startsWith(prefix)) {
+                runCatching { f.delete() }
+            }
+        }
     }
 }

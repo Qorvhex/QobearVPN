@@ -77,6 +77,7 @@ fun HomeScreen(
     onPingSelected: (Profile) -> Unit,
     onOpenTelegram: () -> Unit,
     onOpenAccountSettings: () -> Unit,
+    onRetryCustomAuth: (String?) -> Unit = {},
 ) {
     val palette = LocalNothingPalette.current
 
@@ -152,10 +153,10 @@ fun HomeScreen(
                         .padding(top = 12.dp)
                         .clip(RoundedCornerShape(16.dp))
                         .clickable {
-                            if (connection.error == "AUTH_FAILED" || connection.error == "ACCOUNT_REQUIRED") {
-                                onOpenAccountSettings()
-                            } else {
-                                onDismissError()
+                            when (connection.error) {
+                                "CUSTOM_AUTH_FAILED" -> onRetryCustomAuth(connection.profileId)
+                                "AUTH_FAILED", "ACCOUNT_REQUIRED" -> onOpenAccountSettings()
+                                else -> onDismissError()
                             }
                         },
                     color = palette.nothingRed.copy(alpha = 0.14f),

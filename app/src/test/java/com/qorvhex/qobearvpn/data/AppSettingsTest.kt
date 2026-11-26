@@ -5,10 +5,12 @@ import com.qorvhex.qobearvpn.model.ProbeResult
 import com.qorvhex.qobearvpn.model.Profile
 import com.qorvhex.qobearvpn.model.Remote
 import com.qorvhex.qobearvpn.model.ServerPolicy
+import com.qorvhex.qobearvpn.service.OpenVpnRuntime
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AppSettingsTest {
@@ -74,5 +76,60 @@ class AppSettingsTest {
             assertNull(region.effectiveDpiRelay(false))
             assertNotNull(region.effectiveDpiRelay(true))
         }
+    }
+
+    @Test
+    fun autoConnectBestServerEnabledByDefault() {
+        assertTrue(AppSettings().autoConnectBestServer)
+    }
+
+    @Test
+    fun openVpnRuntimeResolvesCustomAndTunnelBearCredentialsStrictly() {
+        val selfCustom = Profile(
+            id = "self-custom",
+            name = "SelfCustom",
+            config = "client\ndev tun\nremote vpn.example.net 1194 udp\n",
+            remotes = listOf(Remote("vpn.example.net", 1194, "udp")),
+            isCustom = true,
+        )
+        val authPromptCustom = Profile(
+            id = "auth-custom",
+            name = "AuthCustom",
+            config = "client\ndev tun\nremote vpn.example.net 1194 udp\nauth-user-pass\n",
+            remotes = listOf(Remote("vpn.example.net", 1194, "udp")),
+            isCustom = true,
+            hasSavedCredentials = false,
+        )
+        val savedCredCustom = authPromptCustom.copy(id = "saved-custom", hasSavedCredentials = true)
+        val tunnelBear = Profile(
+            id = "tb-de",
+            name = "Germany",
+            config = "client\ndev tun\nremote de.lazerpenguin.com 7011 tcp-client\nauth-user-pass\n",
+            remotes = listOf(Remote("de.lazerpenguin.com", 7011, "tcp-client")),
+        )
+
+        assertEquals(OpenVpnRuntime.SELF_CREDENTIAL, OpenVpnRuntime.resolveAccountId(selfCustom, "tb-1"))
+        assertEquals(OpenVpnRuntime.SELF_CREDENTIAL, OpenVpnRuntime.resolveAccountId(selfCustom, null))
+
+        // Must NEVER fall back to TunnelBear credentials when a custom profile requires auth-user-pass
+        assertNull(OpenVpnRuntime.resolveAccountId(authPromptCustom, "tb-1"))
+        assertNull(OpenVpnRuntime.resolveAccountId(authPromptCustom, null))
+
+        assertEquals(OpenVpnRuntime.CUSTOM_PROFILE_CREDENTIAL, OpenVpnRuntime.resolveAccountId(savedCredCustom, null))
+
+        try {
+            OpenVpnRuntime.setTransientProfileCredentials(authPromptCustom.id, "alice", "s3cr3t")
+            assertEquals(
+                OpenVpnRuntime.CUSTOM_PROFILE_CREDENTIAL,
+                OpenVpnRuntime.resolveAccountId(authPromptCustom, null),
+            )
+            assertEquals("alice" to "s3cr3t", OpenVpnRuntime.transientProfileCredentials(authPromptCustom.id))
+        } finally {
+            OpenVpnRuntime.clearTransientProfileCredentials(authPromptCustom.id)
+        }
+        assertNull(OpenVpnRuntime.resolveAccountId(authPromptCustom, null))
+
+        assertEquals("tb-1", OpenVpnRuntime.resolveAccountId(tunnelBear, "tb-1"))
+        assertNull(OpenVpnRuntime.resolveAccountId(tunnelBear, null))
     }
 }

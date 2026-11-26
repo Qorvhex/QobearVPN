@@ -26,6 +26,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.NetworkCheck
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Speed
@@ -64,7 +65,7 @@ import com.qorvhex.qobearvpn.ui.theme.QobearStrings
 import com.qorvhex.qobearvpn.ui.theme.SpaceMonoFamily
 import com.qorvhex.qobearvpn.ui.theme.VazirmatnFamily
 
-private enum class ServerFilter { ALL, FAVORITES, REACHABLE }
+private enum class ServerFilter { ALL, FAVORITES, REACHABLE, CUSTOM }
 
 @Immutable
 private data class ServerRowUi(
@@ -86,6 +87,7 @@ fun ServersScreen(
     onSelectAndConnect: (Profile) -> Unit,
     onAutoBest: () -> Unit,
     onToggleFavorite: (Profile) -> Unit,
+    onDeleteCustom: (Profile) -> Unit,
     onImportOvpn: () -> Unit,
 ) {
     val palette = LocalNothingPalette.current
@@ -93,7 +95,7 @@ fun ServersScreen(
     var filter by rememberSaveable { mutableStateOf(ServerFilter.ALL) }
     var sortByPing by rememberSaveable { mutableStateOf(true) }
 
-    val isBatchProbing = probingIds.size > 1 && probeTotal > 0
+    val isBatchProbing = probingIds.isNotEmpty() && probeTotal > 0
 
     val rows = remember(catalog.profiles, strings.fa) {
         catalog.profiles.map { profile ->
@@ -127,6 +129,7 @@ fun ServersScreen(
                 ServerFilter.ALL -> true
                 ServerFilter.FAVORITES -> row.profile.favorite
                 ServerFilter.REACHABLE -> row.profile.probe?.isReachable == true
+                ServerFilter.CUSTOM -> row.profile.isCustom
             }
             matchesQuery && matchesFilter
         }
@@ -309,6 +312,11 @@ fun ServersScreen(
                 onClick = { filter = ServerFilter.REACHABLE },
             )
             FilterChipCapsule(
+                label = strings.filterCustom,
+                selected = filter == ServerFilter.CUSTOM,
+                onClick = { filter = ServerFilter.CUSTOM },
+            )
+            FilterChipCapsule(
                 label = strings.sortPing,
                 selected = sortByPing,
                 onClick = { sortByPing = !sortByPing },
@@ -471,6 +479,20 @@ fun ServersScreen(
                                 tint = if (profile.favorite) palette.statusWarning else palette.textSecondary,
                                 modifier = Modifier.size(20.dp),
                             )
+                        }
+
+                        if (profile.isCustom) {
+                            IconButton(
+                                onClick = { onDeleteCustom(profile) },
+                                modifier = Modifier.size(36.dp),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.DeleteOutline,
+                                    contentDescription = strings.deleteCustomHint,
+                                    tint = palette.nothingRed.copy(alpha = 0.85f),
+                                    modifier = Modifier.size(19.dp),
+                                )
+                            }
                         }
                     }
                 }

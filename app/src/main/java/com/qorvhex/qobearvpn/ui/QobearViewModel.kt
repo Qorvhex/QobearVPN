@@ -134,7 +134,9 @@ class QobearViewModel(app: Application) : AndroidViewModel(app) {
     ) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                repo.saveAccount(null, username, password)
+                if (username.isNotBlank() && password.isNotEmpty()) {
+                    repo.saveAccount(null, username, password)
+                }
                 settingsStore.update {
                     it.copy(
                         onboardingCompleted = true,
@@ -155,6 +157,10 @@ class QobearViewModel(app: Application) : AndroidViewModel(app) {
             try {
                 val acc = repo.saveAccount(id, username, password)
                 repo.selectAccount(acc.id)
+                val err = OpenVpnRuntime.connection.value.error
+                if (err == "AUTH_FAILED" || err == "ACCOUNT_REQUIRED") {
+                    OpenVpnRuntime.clearError()
+                }
             } catch (e: Exception) {
                 ConnectionLogStore.append("Account", "Save failed: ${e.message}", isError = true)
                 _bannerMessage.value = "SAVE_FAILED"
@@ -167,6 +173,7 @@ class QobearViewModel(app: Application) : AndroidViewModel(app) {
             try {
                 repo.selectAccount(id)
             } catch (e: Exception) {
+                ConnectionLogStore.append("Account", "Select failed: ${e.message}", isError = true)
                 _bannerMessage.value = "SAVE_FAILED"
             }
         }
@@ -175,11 +182,15 @@ class QobearViewModel(app: Application) : AndroidViewModel(app) {
     fun removeAccount(id: String) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                if (connection.value.active && connection.value.accountId == id) {
+                val conn = OpenVpnRuntime.connection.value
+                if (conn.active && conn.accountId == id) {
                     OpenVpnRuntime.disconnect(getApplication())
+                } else if (!conn.active && conn.accountId == id && conn.error != null) {
+                    OpenVpnRuntime.clearError()
                 }
                 repo.removeAccount(id)
             } catch (e: Exception) {
+                ConnectionLogStore.append("Account", "Remove failed: ${e.message}", isError = true)
                 _bannerMessage.value = "SAVE_FAILED"
             }
         }
@@ -213,10 +224,6 @@ class QobearViewModel(app: Application) : AndroidViewModel(app) {
         settingsStore.update { it.copy(dpiBypassEnabled = enabled) }
     }
 
-    fun setAutoConnectBestServer(enabled: Boolean) {
-        settingsStore.update { it.copy(autoConnectBestServer = enabled) }
-    }
-
     fun selectProfile(profileId: String) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
@@ -241,9 +248,40 @@ class QobearViewModel(app: Application) : AndroidViewModel(app) {
     fun removeCustomProfile(profileId: String) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
+                val conn = OpenVpnRuntime.connection.value
+                if (conn.active && conn.profileId == profileId) {
+                    OpenVpnRuntime.disconnect(getApplication())
+                } else if (!conn.active && conn.profileId == profileId && conn.error != null) {
+                    OpenVpnRuntime.clearError()
+                }
+                OpenVpnRuntime.clearTransientProfileCredentials(profileId)
                 repo.removeCustomProfile(profileId)
             } catch (e: Exception) {
+                ConnectionLogStore.append("Profiles", "Remove custom profile failed: ${e.message}", isError = true)
                 _bannerMessage.value = "SAVE_FAILED"
+            }
+        }
+    }
+
+    fun saveCustomProfileCredentials(
+        profileId: String,
+        username: String,
+        password: String,
+        onSaved: () -> Unit,
+    ) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val saved = try {
+                repo.saveProfileCredentials(profileId, username, password)
+                true
+            } catch (e: Exception) {
+                ConnectionLogStore.append("Vault", "Save custom creds failed: ${e.message}", isError = true)
+                _bannerMessage.value = "SAVE_FAILED"
+                false
+            }
+            if (saved) {
+                withContext(Dispatchers.Main) {
+                    onSaved()
+                }
             }
         }
     }
@@ -274,7 +312,8 @@ class QobearViewModel(app: Application) : AndroidViewModel(app) {
         val currentSettings = settings.value
         val region = currentSettings.bypassRegion
         val dpi = currentSettings.dpiBypassEnabled
-        _probingIds.value = profiles.map { it.id }.toSet()
+        val ownIds = profiles.map { it.id }.toSet()
+        _probingIds.value = ownIds
         _probeTotal.value = profiles.size
 
         batchProbeJob = viewModelScope.launch {
@@ -296,9 +335,12 @@ class QobearViewModel(app: Application) : AndroidViewModel(app) {
                 _bannerMessage.value = e.message ?: "PROBE_FAILED"
             } finally {
                 withContext(NonCancellable + Dispatchers.IO) {
-                    runCatching { repo.persistCatalog() }
+                    runCatching { repo.persistCatalog() }.onFailure {
+                        ConnectionLogStore.append("Probe", "Failed saving batch probes: ${it.message}", isError = true)
+                    }
                 }
-                _probingIds.value = emptySet()
+                _probingIds.update { it - ownIds }
+                if (_probingIds.value.isEmpty()) _probeTotal.value = 0
             }
         }
     }
@@ -307,63 +349,70 @@ class QobearViewModel(app: Application) : AndroidViewModel(app) {
         batchProbeJob?.cancel()
         autoPickJob?.cancel()
         _probingIds.value = emptySet()
+        _probeTotal.value = 0
     }
 
     fun connectProfile(profile: Profile) {
         cancelProbes()
         val data = catalog.value
-        val accountId = if (profile.selfContained && !ProfileRuntime.isTunnelBear(profile)) {
-            OpenVpnRuntime.SELF_CREDENTIAL
-        } else {
-            data.activeAccountId ?: run {
-                _bannerMessage.value = "ACCOUNT_REQUIRED"
-                return
-            }
+        val liveProfile = data.profiles.firstOrNull { it.id == profile.id } ?: profile
+        val accountId = OpenVpnRuntime.resolveAccountId(liveProfile, data.activeAccountId) ?: run {
+            _bannerMessage.value = if (ProfileRuntime.isTunnelBear(liveProfile)) "ACCOUNT_REQUIRED" else "CUSTOM_AUTH_FAILED"
+            return
         }
         viewModelScope.launch(Dispatchers.IO) {
-            runCatching { repo.selectProfile(profile.id) }
+            runCatching { repo.selectProfile(liveProfile.id) }.onFailure {
+                ConnectionLogStore.append("Profiles", "Select before connect failed: ${it.message}", isError = true)
+            }
         }
-        OpenVpnRuntime.connect(getApplication(), profile.id, accountId)
+        if (!OpenVpnRuntime.connect(getApplication(), liveProfile.id, accountId)) {
+            OpenVpnRuntime.clearTransientProfileCredentials(liveProfile.id)
+            _bannerMessage.value = "CONNECTION_FAILED"
+        }
     }
 
-    fun connectAutoBest(onNeedVpnPermission: (Profile, String) -> Unit) {
+    fun connectAutoBest(
+        onNeedVpnPermission: (Profile, String) -> Unit,
+        onNeedCustomAuth: (Profile) -> Unit = {},
+        onNeedTunnelBearAccount: () -> Unit = {},
+    ) {
         if (autoPickJob?.isActive == true) {
             cancelProbes()
             return
         }
         val data = catalog.value
-        val accountId = data.activeAccountId ?: run {
-            _bannerMessage.value = "ACCOUNT_REQUIRED"
+        val candidatePool = if (data.activeAccountId != null) {
+            data.profiles
+        } else {
+            data.profiles.filter { !ProfileRuntime.isTunnelBear(it) }
+        }
+        if (candidatePool.isEmpty()) {
+            _bannerMessage.value = if (data.profiles.isEmpty()) "NO_PROFILES" else "ACCOUNT_REQUIRED"
+            if (data.profiles.isNotEmpty()) onNeedTunnelBearAccount()
             return
         }
         val now = System.currentTimeMillis()
-        val freshBest = ServerPolicy.fastest(data.profiles, now, allowStale = false)
+        val freshBest = ServerPolicy.fastest(candidatePool, now, allowStale = false)
         if (freshBest != null) {
-            selectProfile(freshBest.id)
-            onNeedVpnPermission(freshBest, accountId)
-            return
-        }
-        if (!settings.value.autoConnectBestServer) {
-            val fallback = ServerPolicy.fastest(data.profiles, now, allowStale = true)
-                ?: data.profiles.firstOrNull { it.id == data.selectedProfileId }
-                ?: data.profiles.firstOrNull()
-            if (fallback != null) {
-                selectProfile(fallback.id)
-                onNeedVpnPermission(fallback, accountId)
-            } else {
-                _bannerMessage.value = "NO_PROFILES"
-            }
+            dispatchResolvedProfile(
+                freshBest,
+                data.activeAccountId,
+                onNeedVpnPermission,
+                onNeedCustomAuth,
+                onNeedTunnelBearAccount,
+            )
             return
         }
 
         batchProbeJob?.cancel()
-        val priorityCandidates = (data.profiles.filter { it.favorite } + data.profiles)
+        val priorityCandidates = (candidatePool.filter { it.favorite } + candidatePool)
             .distinctBy { it.id }
             .take(16)
         val currentSettings = settings.value
         val region = currentSettings.bypassRegion
         val dpi = currentSettings.dpiBypassEnabled
-        _probingIds.value = priorityCandidates.map { it.id }.toSet()
+        val ownIds = priorityCandidates.map { it.id }.toSet()
+        _probingIds.value = ownIds
         _probeTotal.value = priorityCandidates.size
 
         autoPickJob = viewModelScope.launch {
@@ -380,10 +429,24 @@ class QobearViewModel(app: Application) : AndroidViewModel(app) {
                         }
                     }.joinAll()
                 }
-                val chosen = ServerPolicy.fastest(catalog.value.profiles, System.currentTimeMillis(), allowStale = true)
+                val liveProfiles = catalog.value.profiles
+                val probePool = if (catalog.value.activeAccountId != null) {
+                    liveProfiles
+                } else {
+                    liveProfiles.filter { !ProfileRuntime.isTunnelBear(it) }
+                }
+                val chosen = ServerPolicy.fastest(probePool, System.currentTimeMillis(), allowStale = true)
+                    ?: probePool.firstOrNull { it.id == data.selectedProfileId && it.probe?.error == "CONTROL_AUTH" }
+                    ?: probePool.firstOrNull { it.favorite && it.probe?.error == "CONTROL_AUTH" }
+                    ?: probePool.firstOrNull { it.probe?.error == "CONTROL_AUTH" }
                 if (chosen != null) {
-                    selectProfile(chosen.id)
-                    onNeedVpnPermission(chosen, accountId)
+                    dispatchResolvedProfile(
+                        chosen,
+                        catalog.value.activeAccountId,
+                        onNeedVpnPermission,
+                        onNeedCustomAuth,
+                        onNeedTunnelBearAccount,
+                    )
                 } else {
                     _bannerMessage.value = "AUTO_PROBE_FAILED"
                 }
@@ -392,9 +455,31 @@ class QobearViewModel(app: Application) : AndroidViewModel(app) {
                 _bannerMessage.value = e.message ?: "AUTO_PROBE_FAILED"
             } finally {
                 withContext(NonCancellable + Dispatchers.IO) {
-                    runCatching { repo.persistCatalog() }
+                    runCatching { repo.persistCatalog() }.onFailure {
+                        ConnectionLogStore.append("Probe", "Failed saving auto-pick probes: ${it.message}", isError = true)
+                    }
                 }
-                _probingIds.value = emptySet()
+                _probingIds.update { it - ownIds }
+                if (_probingIds.value.isEmpty()) _probeTotal.value = 0
+            }
+        }
+    }
+
+    private fun dispatchResolvedProfile(
+        profile: Profile,
+        activeAccountId: String?,
+        onNeedVpnPermission: (Profile, String) -> Unit,
+        onNeedCustomAuth: (Profile) -> Unit,
+        onNeedTunnelBearAccount: () -> Unit,
+    ) {
+        selectProfile(profile.id)
+        val resolvedAccount = OpenVpnRuntime.resolveAccountId(profile, activeAccountId)
+        when {
+            resolvedAccount != null -> onNeedVpnPermission(profile, resolvedAccount)
+            !ProfileRuntime.isTunnelBear(profile) -> onNeedCustomAuth(profile)
+            else -> {
+                _bannerMessage.value = "ACCOUNT_REQUIRED"
+                onNeedTunnelBearAccount()
             }
         }
     }
@@ -449,9 +534,9 @@ class QobearViewModel(app: Application) : AndroidViewModel(app) {
         val activeAccount = conn.accountId
         if (conn.active && activeProfile != null && activeAccount != null) {
             val app = getApplication<Application>()
-            OpenVpnRuntime.disconnect(app)
-            OpenVpnRuntime.connect(app, activeProfile, activeAccount)
-            _bannerMessage.value = "SPLIT_SAVED_RECONNECTED"
+            // Directly issuing connect replaces the active session cleanly without wiping unsaved transient creds.
+            val started = OpenVpnRuntime.connect(app, activeProfile, activeAccount)
+            _bannerMessage.value = if (started) "SPLIT_SAVED_RECONNECTED" else "SAVE_FAILED"
         } else {
             _bannerMessage.value = "SPLIT_SAVED"
         }

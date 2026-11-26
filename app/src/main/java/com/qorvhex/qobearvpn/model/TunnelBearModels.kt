@@ -31,6 +31,7 @@ data class Profile(
     val authenticatedControl: Boolean = false,
     val favorite: Boolean = false,
     val isCustom: Boolean = false,
+    val hasSavedCredentials: Boolean = false,
     val probe: ProbeResult? = null,
 ) {
     val ownCredentials: Pair<String, String>? get() = inlineCredentials(config)

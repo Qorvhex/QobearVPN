@@ -2,6 +2,8 @@ package com.qorvhex.qobearvpn.data
 
 import android.content.Context
 import com.qorvhex.qobearvpn.core.ProfileImporter
+import com.qorvhex.qobearvpn.core.ProfileRuntime
+import com.qorvhex.qobearvpn.service.OpenVpnRuntime
 import com.qorvhex.qobearvpn.model.Account
 import com.qorvhex.qobearvpn.model.AuthState
 import com.qorvhex.qobearvpn.model.ProbeResult
@@ -12,6 +14,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import org.json.JSONArray
 import org.json.JSONObject
+import java.security.MessageDigest
+import java.util.Locale
 import java.util.UUID
 
 data class QobearCatalog(
@@ -43,7 +47,9 @@ class QobearRepository private constructor(private val context: Context) {
                     existingById[b.id]?.let { old ->
                         b.copy(favorite = old.favorite, probe = old.probe)
                     } ?: b
-                } + decoded.profiles.filter { it.isCustom }
+                } + decoded.profiles.filter { it.isCustom }.map { custom ->
+                    custom.copy(hasSavedCredentials = vault.exists(profileCredentialVaultKey(custom.id)))
+                }
                 val next = decoded.copy(
                     profiles = merged,
                     selectedProfileId = decoded.selectedProfileId?.takeIf { id -> merged.any { it.id == id } }
@@ -66,16 +72,27 @@ class QobearRepository private constructor(private val context: Context) {
 
     @Synchronized
     fun resetCorruptStorage() {
-        runCatching { vault.remove(VAULT_CATALOG) }
-        runCatching { vault.remove(VAULT_COMPANIONS) }
+        runCatching { vault.remove(VAULT_CATALOG) }.onFailure {
+            ConnectionLogStore.append("Vault", "Failed clearing catalog during reset: ${it.message}", isError = true)
+        }
+        runCatching { vault.remove(VAULT_COMPANIONS) }.onFailure {
+            ConnectionLogStore.append("Vault", "Failed clearing companions during reset: ${it.message}", isError = true)
+        }
+        runCatching { vault.removeMatchingPrefix(PROFILE_CRED_PREFIX) }.onFailure {
+            ConnectionLogStore.append("Vault", "Failed clearing profile creds during reset: ${it.message}", isError = true)
+        }
+        runCatching { vault.removeMatchingPrefix("cred_") }.onFailure {
+            ConnectionLogStore.append("Vault", "Failed clearing account creds during reset: ${it.message}", isError = true)
+        }
+        OpenVpnRuntime.clearAllTransientProfileCredentials()
         val bundled = loadBundledProfiles()
         val initial = QobearCatalog(
             profiles = bundled,
             selectedProfileId = bundled.firstOrNull()?.id,
             storageError = false,
         )
+        vault.write(VAULT_CATALOG, encode(initial).toString())
         mutable.value = initial
-        save(initial)
     }
 
     private fun loadBundledProfiles(): List<Profile> {
@@ -190,14 +207,113 @@ class QobearRepository private constructor(private val context: Context) {
     }
 
     @Synchronized
+    fun saveProfileCredentials(profileId: String, username: String, password: String) {
+        check(!mutable.value.storageError)
+        val target = mutable.value.profiles.firstOrNull { it.id == profileId }
+        require(target != null && !ProfileRuntime.isTunnelBear(target))
+        val trimmedUser = username.trim()
+        require(trimmedUser.isNotBlank() && trimmedUser.length <= 320)
+        require(password.isNotEmpty() && password.length <= 4096)
+        require('\u0000' !in trimmedUser && '\n' !in trimmedUser && '\r' !in trimmedUser)
+        require('\u0000' !in password)
+
+        val key = profileCredentialVaultKey(profileId)
+        val payload = JSONObject()
+            .put("u", trimmedUser)
+            .put("p", password)
+            .toString()
+        vault.write(key, payload)
+        try {
+            save(
+                mutable.value.copy(
+                    profiles = mutable.value.profiles.map {
+                        if (it.id == profileId) it.copy(hasSavedCredentials = true) else it
+                    }
+                )
+            )
+            OpenVpnRuntime.clearTransientProfileCredentials(profileId)
+        } catch (e: Exception) {
+            runCatching { vault.remove(key) }
+            throw e
+        }
+    }
+
+    @Synchronized
+    fun profileCredentials(profileId: String): Pair<String, String>? {
+        if (mutable.value.storageError) return null
+        val key = profileCredentialVaultKey(profileId)
+        val raw = try {
+            vault.read(key)
+        } catch (e: Exception) {
+            ConnectionLogStore.append("Vault", "Corrupt saved profile credentials cleared: ${e.message}", isError = true)
+            runCatching { vault.remove(key) }
+            clearProfileHasSavedFlag(profileId)
+            return null
+        } ?: return null
+
+        val json = runCatching { JSONObject(raw) }.getOrNull()
+        val user = json?.optString("u", "")?.trim().orEmpty()
+        val pass = json?.optString("p", "").orEmpty()
+        val valid = user.isNotBlank() &&
+            user.length <= 320 &&
+            '\u0000' !in user && '\n' !in user && '\r' !in user &&
+            pass.isNotEmpty() &&
+            pass.length <= 4096 &&
+            '\u0000' !in pass
+        if (!valid) {
+            runCatching { vault.remove(key) }
+            clearProfileHasSavedFlag(profileId)
+            return null
+        }
+        return user to pass
+    }
+
+    @Synchronized
+    fun clearProfileCredentials(profileId: String) {
+        runCatching { vault.remove(profileCredentialVaultKey(profileId)) }.onFailure {
+            ConnectionLogStore.append("Vault", "Failed deleting saved profile credentials: ${it.message}", isError = true)
+        }
+        clearProfileHasSavedFlag(profileId)
+    }
+
+    private fun clearProfileHasSavedFlag(profileId: String) {
+        if (mutable.value.storageError) return
+        if (mutable.value.profiles.any { it.id == profileId && it.hasSavedCredentials }) {
+            runCatching {
+                save(
+                    mutable.value.copy(
+                        profiles = mutable.value.profiles.map {
+                            if (it.id == profileId) it.copy(hasSavedCredentials = false) else it
+                        }
+                    )
+                )
+            }.onFailure {
+                ConnectionLogStore.append("Vault", "Failed updating hasSavedCredentials flag: ${it.message}", isError = true)
+            }
+        }
+    }
+
+    @Synchronized
     fun removeCustomProfile(id: String) {
         val target = mutable.value.profiles.firstOrNull { it.id == id && it.isCustom } ?: return
         val remaining = mutable.value.profiles.filterNot { it.id == target.id }
         val nextSelected = if (mutable.value.selectedProfileId == id) remaining.firstOrNull()?.id else mutable.value.selectedProfileId
         save(mutable.value.copy(profiles = remaining, selectedProfileId = nextSelected))
-        if (remaining.none { it.isCustom }) {
-            runCatching { vault.remove(VAULT_COMPANIONS) }
+        runCatching { vault.remove(profileCredentialVaultKey(id)) }.onFailure {
+            ConnectionLogStore.append("Vault", "Failed removing custom profile creds: ${it.message}", isError = true)
         }
+        if (remaining.none { it.isCustom }) {
+            runCatching { vault.remove(VAULT_COMPANIONS) }.onFailure {
+                ConnectionLogStore.append("Vault", "Failed removing companions vault: ${it.message}", isError = true)
+            }
+        }
+    }
+
+    private fun profileCredentialVaultKey(profileId: String): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+            .digest(profileId.toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(Locale.ROOT, it) }
+        return "$PROFILE_CRED_PREFIX${digest.take(32)}"
     }
 
     @Synchronized
@@ -325,6 +441,7 @@ class QobearRepository private constructor(private val context: Context) {
     companion object {
         private const val VAULT_CATALOG = "catalog"
         private const val VAULT_COMPANIONS = "companions"
+        private const val PROFILE_CRED_PREFIX = "pcred_"
 
         @Volatile
         private var instance: QobearRepository? = null

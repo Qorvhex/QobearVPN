@@ -34,7 +34,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Download
-import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material3.Button
@@ -394,34 +393,6 @@ fun OnboardingScreen(
 
                     Spacer(Modifier.height(16.dp))
 
-                    Surface(
-                        color = palette.surfaceCard,
-                        shape = RoundedCornerShape(16.dp),
-                        border = BorderStroke(1.dp, palette.borderHairline),
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(14.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.Lock,
-                                contentDescription = null,
-                                tint = palette.statusConnected,
-                                modifier = Modifier.size(18.dp),
-                            )
-                            Spacer(Modifier.width(10.dp))
-                            Text(
-                                text = "${selectedRegion.flag} ${strings.regionTitle(selectedRegion)}",
-                                color = palette.textPrimary,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Medium,
-                            )
-                        }
-                    }
-
-                    Spacer(Modifier.height(12.dp))
-
                     TextButton(
                         onClick = {
                             runCatching {
@@ -512,12 +483,31 @@ fun OnboardingScreen(
                     Text(text = strings.back, fontSize = 15.sp)
                 }
 
+                var lastSubmitMs by remember { mutableStateOf(0L) }
+                val trimmedUser = username.trim()
+                val hasUser = trimmedUser.isNotBlank()
+                val hasPass = password.isNotEmpty()
+                val validCredBounds = trimmedUser.length <= 320 &&
+                    password.length <= 4096 &&
+                    '\u0000' !in trimmedUser &&
+                    '\n' !in trimmedUser &&
+                    '\r' !in trimmedUser &&
+                    '\u0000' !in password
                 Button(
                     onClick = {
-                        if (username.isBlank() || password.isEmpty()) {
-                            validationError = strings.credentialValidationError
-                        } else {
-                            onComplete(username.trim(), password, selectedRegion, dpiBypassEnabled, initialLanguage)
+                        val now = System.currentTimeMillis()
+                        if (now - lastSubmitMs < 1_200L) return@Button
+                        when {
+                            !hasUser && !hasPass -> {
+                                lastSubmitMs = now
+                                onComplete("", "", selectedRegion, dpiBypassEnabled, initialLanguage)
+                            }
+                            hasUser && hasPass && validCredBounds -> {
+                                lastSubmitMs = now
+                                onComplete(trimmedUser, password, selectedRegion, dpiBypassEnabled, initialLanguage)
+                            }
+                            hasUser && hasPass -> validationError = strings.credentialValidationError
+                            else -> validationError = strings.credentialHalfFilledError
                         }
                     },
                     modifier = Modifier
@@ -531,7 +521,11 @@ fun OnboardingScreen(
                         disabledContentColor = palette.disabledText,
                     ),
                 ) {
-                    Text(text = strings.finishAndEnter, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                    Text(
+                        text = if (!hasUser && !hasPass) strings.skipAndEnter else strings.finishAndEnter,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
                 }
             }
         }

@@ -74,6 +74,7 @@ import com.qorvhex.qobearvpn.core.ProfileRuntime
 import com.qorvhex.qobearvpn.data.ConnectionLogStore
 import com.qorvhex.qobearvpn.model.Profile
 import com.qorvhex.qobearvpn.service.OpenVpnRuntime
+import com.qorvhex.qobearvpn.ui.components.CustomProfileAuthDialog
 import com.qorvhex.qobearvpn.ui.components.MainTab
 import com.qorvhex.qobearvpn.ui.components.NothingCapsuleNavBar
 import com.qorvhex.qobearvpn.ui.screens.HomeScreen
@@ -103,6 +104,8 @@ fun QobearApp(vm: QobearViewModel = viewModel()) {
 
     var currentTab by rememberSaveable { mutableStateOf(MainTab.CONNECT) }
     var showingLogs by rememberSaveable { mutableStateOf(false) }
+    var customAuthProfileId by rememberSaveable { mutableStateOf<String?>(null) }
+    val customAuthProfile = customAuthProfileId?.let { id -> catalog.profiles.firstOrNull { it.id == id } }
 
     val vpnPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -111,10 +114,13 @@ fun QobearApp(vm: QobearViewModel = viewModel()) {
         vm.pendingConnectProfileId = null
         vm.pendingConnectAccountId = null
         val pendingProfile = pendingId?.let { id -> catalog.profiles.firstOrNull { it.id == id } }
-        if (result.resultCode == Activity.RESULT_OK && pendingProfile != null) {
-            vm.connectProfile(pendingProfile)
-        } else if (pendingId != null) {
-            vm.showBanner("VPN_DENIED")
+        when {
+            result.resultCode == Activity.RESULT_OK && pendingProfile != null -> vm.connectProfile(pendingProfile)
+            result.resultCode != Activity.RESULT_OK && pendingId != null -> {
+                OpenVpnRuntime.clearTransientProfileCredentials(pendingId)
+                vm.showBanner("VPN_DENIED")
+            }
+            pendingId != null -> OpenVpnRuntime.clearTransientProfileCredentials(pendingId)
         }
     }
 
@@ -132,6 +138,9 @@ fun QobearApp(vm: QobearViewModel = viewModel()) {
                 vm.pendingConnectAccountId = null
                 vm.connectProfile(pendingProfile)
             }
+        } else {
+            vm.pendingConnectProfileId = null
+            vm.pendingConnectAccountId = null
         }
     }
 
@@ -296,6 +305,25 @@ fun QobearApp(vm: QobearViewModel = viewModel()) {
                                     },
                                     label = "mainTabTransition",
                                 ) { tab ->
+                                    fun launchProfileConnection(profile: Profile, switchToHome: Boolean = false) {
+                                        val accountId = OpenVpnRuntime.resolveAccountId(profile, catalog.activeAccountId)
+                                        when {
+                                            accountId != null -> {
+                                                requestConnect(profile, accountId)
+                                                if (switchToHome) currentTab = MainTab.CONNECT
+                                            }
+                                            !ProfileRuntime.isTunnelBear(profile) -> {
+                                                vm.selectProfile(profile.id)
+                                                customAuthProfileId = profile.id
+                                            }
+                                            else -> {
+                                                vm.selectProfile(profile.id)
+                                                vm.showBanner("ACCOUNT_REQUIRED")
+                                                currentTab = MainTab.SETTINGS
+                                            }
+                                        }
+                                    }
+
                                     when (tab) {
                                         MainTab.CONNECT -> HomeScreen(
                                             catalog = catalog,
@@ -314,28 +342,16 @@ fun QobearApp(vm: QobearViewModel = viewModel()) {
                                                     if (selected == null) {
                                                         vm.showBanner("NO_PROFILES")
                                                     } else {
-                                                        val accountId = catalog.activeAccountId
-                                                        val needsAccount = !selected.selfContained || ProfileRuntime.isTunnelBear(selected)
-                                                        if (accountId == null && needsAccount) {
-                                                            vm.showBanner("ACCOUNT_REQUIRED")
-                                                            currentTab = MainTab.SETTINGS
-                                                        } else {
-                                                            requestConnect(
-                                                                selected,
-                                                                if (!needsAccount) OpenVpnRuntime.SELF_CREDENTIAL else accountId!!
-                                                            )
-                                                        }
+                                                        launchProfileConnection(selected)
                                                     }
                                                 }
                                             },
                                             onAutoBestClick = {
-                                                val accountId = catalog.activeAccountId
-                                                if (accountId == null) {
-                                                    vm.showBanner("ACCOUNT_REQUIRED")
-                                                    currentTab = MainTab.SETTINGS
-                                                } else {
-                                                    vm.connectAutoBest { best, acc -> requestConnect(best, acc) }
-                                                }
+                                                vm.connectAutoBest(
+                                                    onNeedVpnPermission = { best, acc -> requestConnect(best, acc) },
+                                                    onNeedCustomAuth = { customAuthProfileId = it.id },
+                                                    onNeedTunnelBearAccount = { currentTab = MainTab.SETTINGS },
+                                                )
                                             },
                                             onOpenServers = { currentTab = MainTab.SERVERS },
                                             onPingSelected = vm::pingSingle,
@@ -345,6 +361,14 @@ fun QobearApp(vm: QobearViewModel = viewModel()) {
                                                 }
                                             },
                                             onOpenAccountSettings = { currentTab = MainTab.SETTINGS },
+                                            onRetryCustomAuth = { failedId ->
+                                                OpenVpnRuntime.clearError()
+                                                val targetId = failedId ?: catalog.selectedProfileId
+                                                val target = catalog.profiles.firstOrNull { it.id == targetId }
+                                                if (target != null && !target.selfContained && !ProfileRuntime.isTunnelBear(target)) {
+                                                    customAuthProfileId = target.id
+                                                }
+                                            },
                                         )
 
                                         MainTab.SERVERS -> ServersScreen(
@@ -356,30 +380,20 @@ fun QobearApp(vm: QobearViewModel = viewModel()) {
                                             onPingAll = vm::pingAll,
                                             onPingSingle = vm::pingSingle,
                                             onSelectAndConnect = { profile ->
-                                                val accountId = catalog.activeAccountId
-                                                val needsAccount = !profile.selfContained || ProfileRuntime.isTunnelBear(profile)
-                                                if (accountId == null && needsAccount) {
-                                                    vm.selectProfile(profile.id)
-                                                    vm.showBanner("ACCOUNT_REQUIRED")
-                                                    currentTab = MainTab.SETTINGS
-                                                } else {
-                                                    requestConnect(profile, if (!needsAccount) OpenVpnRuntime.SELF_CREDENTIAL else accountId!!)
-                                                    currentTab = MainTab.CONNECT
-                                                }
+                                                launchProfileConnection(profile, switchToHome = true)
                                             },
                                             onAutoBest = {
-                                                val accountId = catalog.activeAccountId
-                                                if (accountId == null) {
-                                                    vm.showBanner("ACCOUNT_REQUIRED")
-                                                    currentTab = MainTab.SETTINGS
-                                                } else {
-                                                    vm.connectAutoBest { best, acc ->
+                                                vm.connectAutoBest(
+                                                    onNeedVpnPermission = { best, acc ->
                                                         requestConnect(best, acc)
                                                         currentTab = MainTab.CONNECT
-                                                    }
-                                                }
+                                                    },
+                                                    onNeedCustomAuth = { customAuthProfileId = it.id },
+                                                    onNeedTunnelBearAccount = { currentTab = MainTab.SETTINGS },
+                                                )
                                             },
                                             onToggleFavorite = { vm.toggleFavorite(it.id) },
+                                            onDeleteCustom = { vm.removeCustomProfile(it.id) },
                                             onImportOvpn = { importOvpnLauncher.launch(arrayOf("*/*")) },
                                         )
 
@@ -406,13 +420,34 @@ fun QobearApp(vm: QobearViewModel = viewModel()) {
                                             onSetLanBypass = vm::setLanBypass,
                                             onSetAutoReconnect = vm::setAutoReconnect,
                                             onSetDpiBypass = vm::setDpiBypassEnabled,
-                                            onSetAutoServer = vm::setAutoConnectBestServer,
                                             onSetTheme = vm::setThemeMode,
                                             onSetLanguage = vm::setLanguage,
                                             onOpenLogs = { showingLogs = true },
                                             onReportBanner = vm::showBanner,
                                         )
                                     }
+                                }
+
+                                customAuthProfile?.let { target ->
+                                    CustomProfileAuthDialog(
+                                        profile = target,
+                                        strings = strings,
+                                        onDismiss = { customAuthProfileId = null },
+                                        onSubmit = { user, pass, savePassword ->
+                                            if (savePassword) {
+                                                vm.saveCustomProfileCredentials(target.id, user, pass) {
+                                                    customAuthProfileId = null
+                                                    requestConnect(target, OpenVpnRuntime.CUSTOM_PROFILE_CREDENTIAL)
+                                                    currentTab = MainTab.CONNECT
+                                                }
+                                            } else {
+                                                customAuthProfileId = null
+                                                OpenVpnRuntime.setTransientProfileCredentials(target.id, user, pass)
+                                                requestConnect(target, OpenVpnRuntime.CUSTOM_PROFILE_CREDENTIAL)
+                                                currentTab = MainTab.CONNECT
+                                            }
+                                        },
+                                    )
                                 }
 
                                 NothingCapsuleNavBar(
