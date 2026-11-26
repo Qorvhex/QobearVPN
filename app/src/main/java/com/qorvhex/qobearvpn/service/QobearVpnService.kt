@@ -1024,13 +1024,11 @@ class QobearVpnService : VpnService() {
     }
 
     private fun refreshQuickTile() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            runCatching {
-                TileService.requestListeningState(
-                    this,
-                    ComponentName(this, QobearTileService::class.java)
-                )
-            }
+        runCatching {
+            TileService.requestListeningState(
+                this,
+                ComponentName(this, QobearTileService::class.java)
+            )
         }
     }
 
