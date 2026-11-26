@@ -123,29 +123,45 @@ jobs:
             printf '%s' "$X509_B64" | tr -d '[:space:]' | base64 -d > "${{ runner.temp }}/release.x509.pem"
             chmod 600 "${{ runner.temp }}/release.pk8"
             echo "pk8_mode=true" >> "$GITHUB_OUTPUT"
+            echo "external_signing=true" >> "$GITHUB_OUTPUT"
             echo "keystore_path=" >> "$GITHUB_OUTPUT"
+            echo "keystore_pass=" >> "$GITHUB_OUTPUT"
+            echo "key_alias=" >> "$GITHUB_OUTPUT"
+            echo "key_pass=" >> "$GITHUB_OUTPUT"
           elif [ -n "$JKS_B64" ]; then
             printf '%s' "$JKS_B64" | tr -d '[:space:]' | base64 -d > "${{ runner.temp }}/release.jks"
             chmod 600 "${{ runner.temp }}/release.jks"
             echo "pk8_mode=false" >> "$GITHUB_OUTPUT"
+            echo "external_signing=false" >> "$GITHUB_OUTPUT"
             echo "keystore_path=${{ runner.temp }}/release.jks" >> "$GITHUB_OUTPUT"
+            echo "keystore_pass=${{ secrets.QOBEAR_KEYSTORE_PASSWORD }}" >> "$GITHUB_OUTPUT"
+            echo "key_alias=${{ secrets.QOBEAR_KEY_ALIAS }}" >> "$GITHUB_OUTPUT"
+            echo "key_pass=${{ secrets.QOBEAR_KEY_PASSWORD }}" >> "$GITHUB_OUTPUT"
           elif [ "$IS_RELEASE_PUBLISH" == "true" ]; then
             echo "::error::Set QOBEAR_PK8_BASE64 + QOBEAR_X509_BASE64 (or QOBEAR_KEYSTORE_BASE64) secrets before publishing a Release."
             exit 1
           else
-            echo "No release signing secrets set; falling back to debug-signed release APKs for artifact preview."
+            echo "No release signing secrets set; generating ephemeral debug keystore for release preview."
+            keytool -genkeypair -v -keystore "${{ runner.temp }}/debug-preview.jks" \
+              -storepass android -alias androiddebugkey -keypass android \
+              -keyalg RSA -keysize 2048 -validity 365 -dname "CN=QobearDebug,O=QobearVPN"
             echo "pk8_mode=false" >> "$GITHUB_OUTPUT"
-            echo "keystore_path=" >> "$GITHUB_OUTPUT"
+            echo "external_signing=false" >> "$GITHUB_OUTPUT"
+            echo "keystore_path=${{ runner.temp }}/debug-preview.jks" >> "$GITHUB_OUTPUT"
+            echo "keystore_pass=android" >> "$GITHUB_OUTPUT"
+            echo "key_alias=androiddebugkey" >> "$GITHUB_OUTPUT"
+            echo "key_pass=android" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Build Release APKs (arm64-v8a + armeabi-v7a + universal)
         env:
           QOBEAR_VERSION_NAME: ${{ steps.meta.outputs.version_name }}
           QOBEAR_VERSION_CODE: ${{ steps.meta.outputs.version_code }}
+          QOBEAR_EXTERNAL_SIGNING: ${{ steps.signing.outputs.external_signing }}
           QOBEAR_KEYSTORE_PATH: ${{ steps.signing.outputs.keystore_path }}
-          QOBEAR_KEYSTORE_PASSWORD: ${{ secrets.QOBEAR_KEYSTORE_PASSWORD }}
-          QOBEAR_KEY_ALIAS: ${{ secrets.QOBEAR_KEY_ALIAS }}
-          QOBEAR_KEY_PASSWORD: ${{ secrets.QOBEAR_KEY_PASSWORD }}
+          QOBEAR_KEYSTORE_PASSWORD: ${{ steps.signing.outputs.keystore_pass }}
+          QOBEAR_KEY_ALIAS: ${{ steps.signing.outputs.key_alias }}
+          QOBEAR_KEY_PASSWORD: ${{ steps.signing.outputs.key_pass }}
         run: ./gradlew assembleRelease --no-daemon
 
       - name: Collect and sign Release APKs
@@ -156,9 +172,12 @@ jobs:
           mkdir -p dist
           find app/build/outputs/apk/release -type f -name "*.apk" -exec cp -v {} dist/ \;
           if [ "$PK8_MODE" == "true" ]; then
+            ZIPALIGN="$ANDROID_HOME/build-tools/35.0.0/zipalign"
             APKSIGNER="$ANDROID_HOME/build-tools/35.0.0/apksigner"
             for apk in dist/*.apk; do
-              echo "Signing $apk with Qorvhex pk8/x509.pem..."
+              echo "Zipaligning and signing $apk with Qorvhex pk8/x509.pem..."
+              "$ZIPALIGN" -P 16 -f 4 "$apk" "${apk}.aligned"
+              mv "${apk}.aligned" "$apk"
               if [ -n "$QOBEAR_PK8_PASSWORD" ]; then
                 "$APKSIGNER" sign \
                   --key "${{ runner.temp }}/release.pk8" \

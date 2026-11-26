@@ -83,7 +83,11 @@ android {
         release {
             isMinifyEnabled = true
             isShrinkResources = false
-            signingConfig = signingConfigs.getByName("release")
+            signingConfig = if (System.getenv("QOBEAR_EXTERNAL_SIGNING") == "true") {
+                null
+            } else {
+                signingConfigs.getByName("release")
+            }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
