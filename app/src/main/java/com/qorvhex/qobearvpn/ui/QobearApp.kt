@@ -256,10 +256,11 @@ fun QobearApp(vm: QobearViewModel = viewModel()) {
                         if (!onboarded) {
                             OnboardingScreen(
                                 initialRegion = settings.bypassRegion,
+                                initialDpiBypass = settings.dpiBypassEnabled,
                                 initialLanguage = settings.language,
                                 onLanguageChange = vm::setLanguage,
-                                onComplete = { user, pass, region, lang ->
-                                    vm.completeOnboarding(user, pass, region, lang)
+                                onComplete = { user, pass, region, dpiBypass, lang ->
+                                    vm.completeOnboarding(user, pass, region, dpiBypass, lang)
                                 },
                             )
                         } else if (showingLogs) {
@@ -267,7 +268,7 @@ fun QobearApp(vm: QobearViewModel = viewModel()) {
                             LogsScreen(
                                 logs = logs,
                                 strings = strings,
-                                onClear = { ConnectionLogStore.clear() },
+                                onCopied = { vm.showBanner("COPIED") },
                                 onBack = { showingLogs = false },
                             )
                         } else {
@@ -337,7 +338,9 @@ fun QobearApp(vm: QobearViewModel = viewModel()) {
                                                 }
                                             },
                                             onOpenServers = { currentTab = MainTab.SERVERS },
+                                            onPingSelected = vm::pingSingle,
                                             onSelectBypassRegion = vm::setBypassRegion,
+                                            onToggleDpiBypass = vm::setDpiBypassEnabled,
                                             onOpenTelegram = {
                                                 if (!openTelegramChannel(context)) {
                                                     vm.showBanner("NO_INTENT_APP")
@@ -384,13 +387,12 @@ fun QobearApp(vm: QobearViewModel = viewModel()) {
 
                                         MainTab.SPLIT -> SplitTunnelScreen(
                                             config = splitConfig,
+                                            connectionActive = connection.active,
                                             apps = apps,
                                             loading = appsLoading,
                                             strings = strings,
                                             onLoadApps = vm::loadInstalledAppsIfNeeded,
-                                            onModeChange = vm::setSplitMode,
-                                            onTogglePackage = vm::toggleSplitPackage,
-                                            onApplyIranPreset = vm::applyIranBankPreset,
+                                            onSave = vm::applySplitTunnelConfig,
                                         )
 
                                         MainTab.SETTINGS -> SettingsScreen(
@@ -404,7 +406,7 @@ fun QobearApp(vm: QobearViewModel = viewModel()) {
                                             onSetDns = vm::setDns,
                                             onSetLanBypass = vm::setLanBypass,
                                             onSetAutoReconnect = vm::setAutoReconnect,
-                                            onSetGlobalFallback = vm::setGlobalAutoFallback,
+                                            onSetDpiBypass = vm::setDpiBypassEnabled,
                                             onSetAutoServer = vm::setAutoConnectBestServer,
                                             onSetTheme = vm::setThemeMode,
                                             onSetLanguage = vm::setLanguage,

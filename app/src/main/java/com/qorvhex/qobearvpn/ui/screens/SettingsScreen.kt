@@ -1,6 +1,8 @@
 package com.qorvhex.qobearvpn.ui.screens
 
 import android.content.Intent
+import android.net.Uri
+import android.os.PowerManager
 import android.provider.Settings
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
@@ -41,6 +43,7 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -55,6 +58,9 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.qorvhex.qobearvpn.data.AppSettings
 import com.qorvhex.qobearvpn.data.QobearCatalog
 import com.qorvhex.qobearvpn.model.Account
@@ -67,6 +73,7 @@ import com.qorvhex.qobearvpn.ui.theme.DotMatrixFamily
 import com.qorvhex.qobearvpn.ui.theme.LocalNothingPalette
 import com.qorvhex.qobearvpn.ui.theme.QobearStrings
 import com.qorvhex.qobearvpn.ui.theme.SpaceMonoFamily
+import com.qorvhex.qobearvpn.ui.theme.VazirmatnFamily
 
 @Composable
 fun SettingsScreen(
@@ -80,7 +87,7 @@ fun SettingsScreen(
     onSetDns: (DnsPreset, String) -> Unit,
     onSetLanBypass: (Boolean) -> Unit,
     onSetAutoReconnect: (Boolean) -> Unit,
-    onSetGlobalFallback: (Boolean) -> Unit,
+    onSetDpiBypass: (Boolean) -> Unit,
     onSetAutoServer: (Boolean) -> Unit,
     onSetTheme: (AppThemeMode) -> Unit,
     onSetLanguage: (AppLanguage) -> Unit,
@@ -89,6 +96,21 @@ fun SettingsScreen(
 ) {
     val palette = LocalNothingPalette.current
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val powerManager = remember(context) { context.getSystemService(PowerManager::class.java) }
+    var batteryExempt by remember {
+        mutableStateOf(powerManager?.isIgnoringBatteryOptimizations(context.packageName) == true)
+    }
+
+    DisposableEffect(lifecycleOwner, powerManager) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                batteryExempt = powerManager?.isIgnoringBatteryOptimizations(context.packageName) == true
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     var editingAccount by remember { mutableStateOf<Account?>(null) }
     var showAccountDialog by remember { mutableStateOf(false) }
@@ -138,7 +160,8 @@ fun SettingsScreen(
         Text(
             text = strings.settingsTitle,
             style = TextStyle(
-                fontFamily = DotMatrixFamily,
+                fontFamily = if (strings.fa) VazirmatnFamily else DotMatrixFamily,
+                fontWeight = FontWeight.Bold,
                 fontSize = 20.sp,
                 color = palette.textPrimary,
             ),
@@ -292,7 +315,7 @@ fun SettingsScreen(
 
                 ToggleRow(strings.lanBypassLabel, settings.lanBypass, onSetLanBypass)
                 ToggleRow(strings.autoReconnectLabel, settings.autoReconnect, onSetAutoReconnect)
-                ToggleRow(strings.globalFallbackLabel, settings.globalAutoFallbackRelay, onSetGlobalFallback)
+                ToggleRow(strings.dpiBypassLabel, settings.dpiBypassEnabled, onSetDpiBypass, subtitle = strings.dpiBypassSub)
                 ToggleRow(strings.autoServerLabel, settings.autoConnectBestServer, onSetAutoServer)
 
                 // Always-on VPN & Kill Switch system settings
@@ -305,14 +328,25 @@ fun SettingsScreen(
                     },
                 )
 
-                // Battery optimization exemption
+                // Battery optimization exemption (in-app system dialog first, settings fallback on custom OEM ROMs)
                 ActionRow(
                     icon = Icons.Rounded.BatteryChargingFull,
-                    title = strings.batteryOpt,
+                    title = if (batteryExempt) strings.batteryExemptActive else strings.batteryOpt,
+                    accent = if (batteryExempt) palette.statusConnected else palette.nothingRed,
                     onClick = {
-                        val intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
-                        runCatching { context.startActivity(intent) }
-                            .onFailure { onReportBanner("NO_INTENT_APP") }
+                        if (batteryExempt) {
+                            onReportBanner("BATTERY_ALREADY_EXEMPT")
+                        } else {
+                            val popupIntent = Intent(
+                                Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                                Uri.parse("package:${context.packageName}"),
+                            )
+                            runCatching { context.startActivity(popupIntent) }.onFailure {
+                                runCatching {
+                                    context.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+                                }.onFailure { onReportBanner("NO_INTENT_APP") }
+                            }
+                        }
                     },
                 )
             }
@@ -402,14 +436,25 @@ private fun SectionHeader(title: String) {
 }
 
 @Composable
-private fun ToggleRow(label: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+private fun ToggleRow(
+    label: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    subtitle: String? = null,
+) {
     val palette = LocalNothingPalette.current
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
-        Text(text = label, color = palette.textPrimary, fontSize = 13.sp, modifier = Modifier.weight(1f))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(text = label, color = palette.textPrimary, fontSize = 13.sp)
+            if (!subtitle.isNullOrBlank()) {
+                Spacer(Modifier.height(2.dp))
+                Text(text = subtitle, color = palette.textSecondary, fontSize = 11.sp)
+            }
+        }
         Spacer(Modifier.width(8.dp))
         Switch(
             checked = checked,
@@ -426,6 +471,7 @@ private fun ToggleRow(label: String, checked: Boolean, onCheckedChange: (Boolean
 private fun ActionRow(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     title: String,
+    accent: androidx.compose.ui.graphics.Color = LocalNothingPalette.current.nothingRed,
     onClick: () -> Unit,
 ) {
     val palette = LocalNothingPalette.current
@@ -437,7 +483,7 @@ private fun ActionRow(
             .padding(vertical = 8.dp, horizontal = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(icon, contentDescription = null, tint = palette.nothingRed, modifier = Modifier.size(19.dp))
+        Icon(icon, contentDescription = null, tint = accent, modifier = Modifier.size(19.dp))
         Spacer(Modifier.width(10.dp))
         Text(text = title, color = palette.textPrimary, fontSize = 13.sp, modifier = Modifier.weight(1f))
         Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = palette.textSecondary)

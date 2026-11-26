@@ -12,6 +12,7 @@ import com.qorvhex.qobearvpn.model.BypassRegion
 import com.qorvhex.qobearvpn.model.ProbeResult
 import com.qorvhex.qobearvpn.model.Profile
 import com.qorvhex.qobearvpn.model.RelayProfile
+import com.qorvhex.qobearvpn.service.OpenVpnRuntime
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -52,8 +53,9 @@ object OpenVpnLatency {
         context: Context,
         profile: Profile,
         bypassRegion: BypassRegion,
+        dpiBypass: Boolean = false,
     ): ProbeResult = withContext(Dispatchers.IO) {
-        val relay = bypassRegion.relayProfile
+        val relay = bypassRegion.effectiveDpiRelay(dpiBypass)
         val physicalNetwork = activePhysicalNetwork(context)
 
         if (ProfileRuntime.isTunnelBear(profile)) {
@@ -193,6 +195,7 @@ object OpenVpnLatency {
         thread(name = "qobear-probe-tcp", isDaemon = true) {
             try {
                 socket.use { s ->
+                    OpenVpnRuntime.protect(s)
                     s.tcpNoDelay = true
                     val start = System.nanoTime()
                     s.connect(InetSocketAddress(address, port), REPLY_MS)
@@ -260,6 +263,7 @@ object OpenVpnLatency {
         physicalNetwork: Network?,
     ): Handshake = suspendCancellableCoroutine { cont ->
         val socket = DatagramSocket()
+        OpenVpnRuntime.protect(socket)
         runCatching { physicalNetwork?.bindSocket(socket) }
         cont.invokeOnCancellation { runCatching { socket.close() } }
 
@@ -334,6 +338,7 @@ object OpenVpnLatency {
         block: (Socket) -> T,
     ): T = suspendCancellableCoroutine { cont ->
         val socket = physicalNetwork?.socketFactory?.createSocket() ?: Socket()
+        OpenVpnRuntime.protect(socket)
         cont.invokeOnCancellation { runCatching { socket.close() } }
         thread(name = "qobear-probe-conn", isDaemon = true) {
             try {

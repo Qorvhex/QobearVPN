@@ -20,7 +20,7 @@ data class AppSettings(
     val customDns: String = "",
     val lanBypass: Boolean = true,
     val autoReconnect: Boolean = true,
-    val globalAutoFallbackRelay: Boolean = true,
+    val dpiBypassEnabled: Boolean = false,
     val autoConnectBestServer: Boolean = true,
 ) {
     fun effectiveDnsServers(): List<String> = when (dnsPreset) {
@@ -71,7 +71,7 @@ class SettingsStore private constructor(context: Context) {
         customDns = prefs.getString(KEY_CUSTOM_DNS, "").orEmpty(),
         lanBypass = prefs.getBoolean(KEY_LAN_BYPASS, true),
         autoReconnect = prefs.getBoolean(KEY_AUTO_RECONNECT, true),
-        globalAutoFallbackRelay = prefs.getBoolean(KEY_GLOBAL_FALLBACK, true),
+        dpiBypassEnabled = prefs.getBoolean(KEY_DPI_BYPASS, false),
         autoConnectBestServer = prefs.getBoolean(KEY_AUTO_SERVER, true),
     )
 
@@ -87,7 +87,7 @@ class SettingsStore private constructor(context: Context) {
             .putString(KEY_CUSTOM_DNS, next.customDns)
             .putBoolean(KEY_LAN_BYPASS, next.lanBypass)
             .putBoolean(KEY_AUTO_RECONNECT, next.autoReconnect)
-            .putBoolean(KEY_GLOBAL_FALLBACK, next.globalAutoFallbackRelay)
+            .putBoolean(KEY_DPI_BYPASS, next.dpiBypassEnabled)
             .putBoolean(KEY_AUTO_SERVER, next.autoConnectBestServer)
             .apply()
         _settings.value = next
@@ -102,7 +102,7 @@ class SettingsStore private constructor(context: Context) {
         private const val KEY_CUSTOM_DNS = "custom_dns"
         private const val KEY_LAN_BYPASS = "lan_bypass"
         private const val KEY_AUTO_RECONNECT = "auto_reconnect"
-        private const val KEY_GLOBAL_FALLBACK = "global_fallback_relay"
+        private const val KEY_DPI_BYPASS = "dpi_bypass_enabled"
         private const val KEY_AUTO_SERVER = "auto_server"
 
         @Volatile

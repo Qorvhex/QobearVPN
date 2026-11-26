@@ -20,11 +20,11 @@ class QobearStrings(val fa: Boolean) {
     } else {
         "Purpose-built OpenVPN 3 client for TunnelBear with adaptive DPI bypass and Nothing OS precision."
     }
-    val chooseBypassTitle = if (fa) "مسیر و روش بایپس را انتخاب کنید" else "Choose your bypass regime"
+    val chooseBypassTitle = if (fa) "منطقه بایپس را انتخاب کنید" else "Choose Geo-Bypass Region"
     val chooseBypassSub = if (fa) {
-        "سایت‌ها و برنامه‌های داخلی کشور انتخاب‌شده بدون فیلترشکن باز می‌شوند و ترافیک بین‌الملل با ضدسانسور مخصوص آن شبکه تونل می‌گردد."
+        "آی‌پی‌های داخلی کشور انتخاب‌شده و شبکه محلی بدون فیلترشکن مستقیم عبور می‌کنند و ترافیک بین‌الملل از VPN می‌گذرد."
     } else {
-        "Domestic IP blocks & LAN traffic route directly while international traffic uses regime-tuned DPI evasion."
+        "Domestic IP blocks & LAN traffic route directly while international traffic goes through VPN."
     }
     val next = if (fa) "ادامه" else "Continue"
     val back = if (fa) "بازگشت" else "Back"
@@ -50,24 +50,24 @@ class QobearStrings(val fa: Boolean) {
 
     fun regionDesc(r: BypassRegion): String = when (r) {
         BypassRegion.IRAN -> if (fa) {
-            "عبور مستقیم آی‌پی‌های ایران + بانک‌ها و شبکه محلی | ضدسانسور فعال Split Relay"
+            "عبور مستقیم آی‌پی‌های ایران، سایت‌های داخلی و شبکه محلی"
         } else {
-            "Direct IR domestic routes & LAN | Aggressive TCP-TLS Split Relay"
+            "Direct IR domestic routes & local network (LAN)"
         }
         BypassRegion.CHINA -> if (fa) {
-            "عبور مستقیم آی‌پی‌های چین و شبکه محلی | ضدسانسور بهینه‌شده برای GFW"
+            "عبور مستقیم آی‌پی‌های چین و شبکه محلی"
         } else {
-            "Direct CN routes & LAN | Fine-grained GFW chunking & window clamp"
+            "Direct CN domestic routes & local network (LAN)"
         }
         BypassRegion.RUSSIA -> if (fa) {
-            "عبور مستقیم آی‌پی‌های روسیه و شبکه محلی | ضدسانسور بهینه‌شده برای TSPU"
+            "عبور مستقیم آی‌پی‌های روسیه و شبکه محلی"
         } else {
-            "Direct RU routes & LAN | TSPU packet shaping & pool failover"
+            "Direct RU domestic routes & local network (LAN)"
         }
         BypassRegion.GLOBAL -> if (fa) {
-            "تونل کامل ۱۰۰٪ بدون بایپس کشوری | اتصال مستقیم حداکثر سرعت"
+            "تونل کامل ۱۰۰٪ تمام ترافیک بدون بایپس کشوری"
         } else {
-            "100% tunneled traffic | Direct OpenVPN 3 without relay overhead"
+            "100% tunneled traffic without country bypass"
         }
     }
 
@@ -81,13 +81,15 @@ class QobearStrings(val fa: Boolean) {
     val autoFastest = if (fa) "انتخاب خودکار بهترین" else "Auto Fastest"
     val changeServer = if (fa) "تغییر سرور" else "Switch"
     val bypassModeChip = if (fa) "بایپس" else "Bypass"
+    val dpiBypassChip = if (fa) "ضدسانسور DPI" else "DPI Bypass"
+    val tapToPing = if (fa) "پینگ" else "Ping"
     val downloadLabel = if (fa) "دانلود" else "DOWN"
     val uploadLabel = if (fa) "آپلود" else "UP"
     val totalTraffic = if (fa) "حجم کل" else "TOTAL"
     val exitIpLabel = if (fa) "آی‌پی خروجی" else "EXIT IP"
 
     // Servers
-    val serversTitle = if (fa) "سرورهای TunnelBear" else "TunnelBear Nodes"
+    val serversTitle = if (fa) "سرورها" else "Servers"
     val pingAll = if (fa) "پینگ همه" else "Ping All"
     val stopPing = if (fa) "توقف پینگ" else "Stop"
     val autoConnectCardTitle = if (fa) "حالت خودکار (سریع‌ترین سرور)" else "Auto Connect · Best Node"
@@ -118,7 +120,8 @@ class QobearStrings(val fa: Boolean) {
     val splitExcludeSub = if (fa) "برنامه‌های تیک‌خورده مستقیم (بدون VPN) متصل می‌شوند." else "Checked apps bypass the VPN directly."
     val searchAppsHint = if (fa) "جستجوی برنامه..." else "Search apps..."
     val showSystemApps = if (fa) "نمایش برنامه‌های سیستمی" else "Show system apps"
-    val iranBankPreset = if (fa) "افزودن خودکار اپ‌های بانکی و داخلی ایران" else "Auto-add Iranian Banking & Local Apps"
+    val splitSave = if (fa) "ذخیره تنظیمات" else "Save Settings"
+    val splitSaveReconnect = if (fa) "ذخیره و اتصال مجدد" else "Save & Reconnect"
 
     // Settings
     val settingsTitle = if (fa) "تنظیمات" else "Settings"
@@ -128,10 +131,12 @@ class QobearStrings(val fa: Boolean) {
     val dnsLabel = if (fa) "سرویس‌دهنده DNS" else "DNS Resolver"
     val lanBypassLabel = if (fa) "بایپس شبکه محلی (LAN)" else "Bypass Local Network (LAN)"
     val autoReconnectLabel = if (fa) "اتصال خودکار هنگام تغییر شبکه" else "Auto-Reconnect on Network Switch"
-    val globalFallbackLabel = if (fa) "تغییر خودکار به Split Relay در حالت جهانی" else "Global Auto-Fallback to DPI Relay"
+    val dpiBypassLabel = if (fa) "ضدسانسور قوی (DPI Bypass)" else "DPI Anti-Censorship (Strong Bypass)"
+    val dpiBypassSub = if (fa) "تنها در صورت فیلتر بودن یا وصل‌نشدن سرور فعال کنید" else "Enable if normal connection is blocked by DPI"
     val autoServerLabel = if (fa) "پینگ خودکار هنگام نبود سرور سریع" else "Auto-Probe when Fastest Unknown"
     val alwaysOnSystem = if (fa) "تنظیمات Always-On و Kill Switch اندروید" else "Android Always-On & Kill Switch"
     val batteryOpt = if (fa) "مستثنی کردن از محدودیت باتری" else "Disable Battery Optimization"
+    val batteryExemptActive = if (fa) "معاف از محدودیت باتری (فعال)" else "Battery Exemption Active"
     val sectionAppearance = if (fa) "ظاهر و زبان" else "Appearance & Language"
     val themeLabel = if (fa) "تم برنامه" else "Theme"
     val languageLabel = if (fa) "زبان رابط" else "Language"
@@ -161,12 +166,17 @@ class QobearStrings(val fa: Boolean) {
                 val err = code.removePrefix("IMPORT_ERROR:")
                 if (fa) "خطا در خواندن فایل: $err" else "Import failed: $err"
             }
-            code.startsWith("PRESET_ADDED:") -> {
-                val n = code.removePrefix("PRESET_ADDED:")
-                if (fa) "$n برنامه بانکی/داخلی به لیست بایپس اضافه شد." else "Added $n local apps to bypass list."
+            code == "SPLIT_SAVED" -> {
+                if (fa) "تنظیمات اسپلیت تانلینگ ذخیره شد." else "Split tunnel settings saved."
             }
-            code == "PRESET_NONE" -> {
-                if (fa) "اپ بانکی/داخلی شناخته‌شده‌ای روی دستگاه یافت نشد." else "No known local banking apps found."
+            code == "SPLIT_SAVED_RECONNECTED" -> {
+                if (fa) "تنظیمات ذخیره شد و اتصال با قوانین جدید برقرار گردید." else "Saved and reconnecting with new split rules."
+            }
+            code == "COPIED" -> {
+                if (fa) "گزارش اتصال در حافظه کپی شد." else "Logs copied to clipboard."
+            }
+            code == "BATTERY_ALREADY_EXEMPT" -> {
+                if (fa) "برنامه هم‌اکنون از محدودیت باتری معاف است." else "App is already exempt from battery optimization."
             }
             code == "AUTO_PROBE_FAILED" -> {
                 if (fa) "هیچ سروری به تست پینگ پاسخ نداد. حالت بایپس یا شبکه را بررسی کنید." else "No server responded to probe. Check network or bypass mode."

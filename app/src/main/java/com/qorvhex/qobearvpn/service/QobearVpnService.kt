@@ -99,6 +99,8 @@ class QobearVpnService : VpnService() {
 
     override fun onCreate() {
         super.onCreate()
+        OpenVpnRuntime.socketProtector = { protect(it) }
+        OpenVpnRuntime.datagramProtector = { protect(it) }
         ensureNotificationChannel()
         registerPhysicalNetworkWatcher()
 
@@ -166,27 +168,6 @@ class QobearVpnService : VpnService() {
     private fun handleSessionFinished(finished: Session, forceErrorIfNoFallback: String?) {
         val settings = settingsStore.settings.value
         val terminal = finished.terminalError ?: forceErrorIfNoFallback
-        val canAutoFallback = (!finished.userStopped || finished.timedOut) &&
-            !finished.usedRelay &&
-            finished.supportsTcpRelay &&
-            settings.bypassRegion == BypassRegion.GLOBAL &&
-            settings.globalAutoFallbackRelay &&
-            terminal in setOf("CONNECT_DEADLINE", "CONNECTION_TIMEOUT", "CONNECTION_FAILED", "NO_DATA") &&
-            latestStartId == finished.requestId &&
-            !shuttingDown
-
-        if (canAutoFallback) {
-            ConnectionLogStore.append(TAG, "Direct global connection stalled ($terminal); retrying with DPI Split Relay")
-            startSession(
-                Command(
-                    profileId = finished.profileId,
-                    accountId = finished.accountId,
-                    forceFallbackRelay = true,
-                    startId = finished.requestId,
-                )
-            )
-            return
-        }
 
         if (forceErrorIfNoFallback != null || terminal != null) {
             val shouldReportError = !finished.userStopped || finished.timedOut
@@ -310,6 +291,8 @@ class QobearVpnService : VpnService() {
 
     override fun onDestroy() {
         shuttingDown = true
+        OpenVpnRuntime.socketProtector = null
+        OpenVpnRuntime.datagramProtector = null
         unregisterPhysicalNetworkWatcher()
         activeSession?.userStop()
         commands.close()
@@ -326,12 +309,9 @@ class QobearVpnService : VpnService() {
         val accountId = cmd.accountId ?: return
         val profile = repo.data.value.profiles.firstOrNull { it.id == profileId }
         val region = settingsStore.settings.value.bypassRegion
+        val dpiEnabled = settingsStore.settings.value.dpiBypassEnabled
         val allowRelay = profile?.let { ProfileRuntime.supportsTcpRelay(it) } ?: false
-        val relayProfile = when {
-            !allowRelay -> null
-            cmd.forceFallbackRelay -> BypassRegion.IRAN.relayProfile
-            else -> region.relayProfile
-        }
+        val relayProfile = if (allowRelay) region.effectiveDpiRelay(dpiEnabled || cmd.forceFallbackRelay) else null
 
         val newSession = Session(
             profileId = profileId,

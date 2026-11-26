@@ -25,9 +25,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.Shield
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Surface
@@ -77,7 +80,9 @@ fun HomeScreen(
     onDialClick: () -> Unit,
     onAutoBestClick: () -> Unit,
     onOpenServers: () -> Unit,
+    onPingSelected: (Profile) -> Unit,
     onSelectBypassRegion: (BypassRegion) -> Unit,
+    onToggleDpiBypass: (Boolean) -> Unit,
     onOpenTelegram: () -> Unit,
     onOpenAccountSettings: () -> Unit,
 ) {
@@ -152,10 +157,11 @@ fun HomeScreen(
 
         Spacer(Modifier.height(14.dp))
 
-        // Quick Bypass Region & DNS Pill Row
+        // Quick Bypass Region + Independent DPI Anti-Censorship Pills
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             Surface(
                 modifier = Modifier
@@ -166,7 +172,7 @@ fun HomeScreen(
                 border = BorderStroke(1.dp, palette.borderHairline),
             ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                    modifier = Modifier.padding(horizontal = 13.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(text = settings.bypassRegion.flag, fontSize = 15.sp)
@@ -176,6 +182,8 @@ fun HomeScreen(
                         color = palette.textPrimary,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                     Spacer(Modifier.width(4.dp))
                     Icon(
@@ -183,6 +191,38 @@ fun HomeScreen(
                         contentDescription = null,
                         tint = palette.textSecondary,
                         modifier = Modifier.size(16.dp),
+                    )
+                }
+            }
+
+            Surface(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(999.dp))
+                    .clickable { onToggleDpiBypass(!settings.dpiBypassEnabled) },
+                color = if (settings.dpiBypassEnabled) palette.surfaceElevated else palette.surfaceCard,
+                shape = RoundedCornerShape(999.dp),
+                border = BorderStroke(
+                    1.dp,
+                    if (settings.dpiBypassEnabled) palette.nothingRed else palette.borderHairline,
+                ),
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        imageVector = if (settings.dpiBypassEnabled) Icons.Rounded.CheckCircle else Icons.Rounded.Shield,
+                        contentDescription = null,
+                        tint = if (settings.dpiBypassEnabled) palette.nothingRed else palette.textSecondary,
+                        modifier = Modifier.size(15.dp),
+                    )
+                    Spacer(Modifier.width(5.dp))
+                    Text(
+                        text = strings.dpiBypassChip,
+                        color = if (settings.dpiBypassEnabled) palette.textPrimary else palette.textSecondary,
+                        fontSize = 12.sp,
+                        fontWeight = if (settings.dpiBypassEnabled) FontWeight.Bold else FontWeight.Medium,
+                        maxLines = 1,
                     )
                 }
             }
@@ -310,7 +350,7 @@ fun HomeScreen(
                     )
                     Spacer(Modifier.height(2.dp))
                     Text(
-                        text = place?.localizedName(strings.fa) ?: (selectedProfile?.name ?: "TunnelBear"),
+                        text = place?.localizedName(strings.fa) ?: (selectedProfile?.name ?: "QobearVPN"),
                         color = palette.textPrimary,
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Bold,
@@ -320,22 +360,47 @@ fun HomeScreen(
                 }
 
                 val pingMs = selectedProfile?.probe?.millis
-                if (pingMs != null) {
+                val isSelectedProbing = selectedProfile != null && selectedProfile.id in probingIds
+                if (selectedProfile != null) {
                     Surface(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(999.dp))
+                            .clickable(enabled = !isSelectedProbing) {
+                                onPingSelected(selectedProfile)
+                            },
                         color = palette.surfaceElevated,
                         shape = RoundedCornerShape(999.dp),
-                        border = BorderStroke(1.dp, palette.borderHairline),
+                        border = BorderStroke(
+                            1.dp,
+                            if (isSelectedProbing) palette.nothingRed else palette.borderHairline,
+                        ),
                     ) {
-                        Text(
-                            text = "${pingMs}ms",
-                            style = TextStyle(
-                                fontFamily = SpaceMonoFamily,
-                                fontSize = 12.sp,
-                                color = pingColor(pingMs, palette.statusConnected, palette.statusWarning, palette.nothingRed),
-                                fontFeatureSettings = "tnum",
-                            ),
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                        )
+                        Box(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            if (isSelectedProbing) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(14.dp),
+                                    strokeWidth = 2.dp,
+                                    color = palette.nothingRed,
+                                )
+                            } else {
+                                Text(
+                                    text = if (pingMs != null) "${pingMs}ms" else strings.tapToPing,
+                                    style = TextStyle(
+                                        fontFamily = if (pingMs != null) SpaceMonoFamily else com.qorvhex.qobearvpn.ui.theme.VazirmatnFamily,
+                                        fontSize = 12.sp,
+                                        color = if (pingMs != null) {
+                                            pingColor(pingMs, palette.statusConnected, palette.statusWarning, palette.nothingRed)
+                                        } else {
+                                            palette.textSecondary
+                                        },
+                                        fontFeatureSettings = "tnum",
+                                    ),
+                                )
+                            }
+                        }
                     }
                     Spacer(Modifier.width(8.dp))
                 }
@@ -414,7 +479,7 @@ internal fun pingColor(
     amber: androidx.compose.ui.graphics.Color,
     red: androidx.compose.ui.graphics.Color,
 ) = when {
-    ms < 160L -> green
-    ms < 320L -> amber
+    ms < 300L -> green
+    ms < 600L -> amber
     else -> red
 }

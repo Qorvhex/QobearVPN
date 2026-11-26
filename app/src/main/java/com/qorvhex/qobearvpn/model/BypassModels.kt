@@ -58,6 +58,9 @@ enum class BypassRegion(
         relayProfile = null,
     );
 
+    fun effectiveDpiRelay(dpiBypassEnabled: Boolean): RelayProfile? =
+        if (!dpiBypassEnabled) null else relayProfile ?: CHINA.relayProfile
+
     companion object {
         fun fromId(id: String?): BypassRegion =
             entries.firstOrNull { it.id.equals(id, ignoreCase = true) } ?: IRAN

@@ -24,6 +24,7 @@ import com.qorvhex.qobearvpn.data.SplitTunnelStore
 import com.qorvhex.qobearvpn.model.AppLanguage
 import com.qorvhex.qobearvpn.model.AppThemeMode
 import com.qorvhex.qobearvpn.model.BypassRegion
+import com.qorvhex.qobearvpn.model.ConnectionPhase
 import com.qorvhex.qobearvpn.model.DnsPreset
 import com.qorvhex.qobearvpn.model.OpenVpnConnection
 import com.qorvhex.qobearvpn.model.Profile
@@ -33,6 +34,7 @@ import com.qorvhex.qobearvpn.service.OpenVpnRuntime
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -42,6 +44,7 @@ import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 
 data class InstalledAppItem(
@@ -83,6 +86,23 @@ class QobearViewModel(app: Application) : AndroidViewModel(app) {
 
     private var batchProbeJob: Job? = null
     private var autoPickJob: Job? = null
+    private var lastConnectedProbeKey: String? = null
+
+    init {
+        viewModelScope.launch {
+            connection.collect { conn ->
+                if (conn.phase == ConnectionPhase.CONNECTED && conn.profileId != null && conn.connectedAt != null) {
+                    val key = "${conn.profileId}:${conn.connectedAt}"
+                    if (lastConnectedProbeKey != key) {
+                        lastConnectedProbeKey = key
+                        catalog.value.profiles.firstOrNull { it.id == conn.profileId }?.let { profile ->
+                            pingSingle(profile)
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     fun clearBanner() {
         _bannerMessage.value = null
@@ -104,7 +124,13 @@ class QobearViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun completeOnboarding(username: String, password: String, region: BypassRegion, language: AppLanguage) {
+    fun completeOnboarding(
+        username: String,
+        password: String,
+        region: BypassRegion,
+        dpiBypassEnabled: Boolean,
+        language: AppLanguage,
+    ) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 repo.saveAccount(null, username, password)
@@ -112,6 +138,7 @@ class QobearViewModel(app: Application) : AndroidViewModel(app) {
                     it.copy(
                         onboardingCompleted = true,
                         bypassRegion = region,
+                        dpiBypassEnabled = dpiBypassEnabled,
                         language = language,
                     )
                 }
@@ -181,8 +208,8 @@ class QobearViewModel(app: Application) : AndroidViewModel(app) {
         settingsStore.update { it.copy(autoReconnect = enabled) }
     }
 
-    fun setGlobalAutoFallback(enabled: Boolean) {
-        settingsStore.update { it.copy(globalAutoFallbackRelay = enabled) }
+    fun setDpiBypassEnabled(enabled: Boolean) {
+        settingsStore.update { it.copy(dpiBypassEnabled = enabled) }
     }
 
     fun setAutoConnectBestServer(enabled: Boolean) {
@@ -222,11 +249,13 @@ class QobearViewModel(app: Application) : AndroidViewModel(app) {
 
     fun pingSingle(profile: Profile) {
         if (profile.id in _probingIds.value) return
-        val region = settings.value.bypassRegion
+        val currentSettings = settings.value
+        val region = currentSettings.bypassRegion
+        val dpi = currentSettings.dpiBypassEnabled
         _probingIds.update { it + profile.id }
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val res = OpenVpnLatency.measure(getApplication(), profile, region)
+                val res = OpenVpnLatency.measure(getApplication(), profile, region, dpi)
                 runCatching { repo.updateProfile(profile.id) { it.copy(probe = res) } }
             } finally {
                 _probingIds.update { it - profile.id }
@@ -241,7 +270,9 @@ class QobearViewModel(app: Application) : AndroidViewModel(app) {
         }
         val profiles = catalog.value.profiles
         if (profiles.isEmpty()) return
-        val region = settings.value.bypassRegion
+        val currentSettings = settings.value
+        val region = currentSettings.bypassRegion
+        val dpi = currentSettings.dpiBypassEnabled
         _probingIds.value = profiles.map { it.id }.toSet()
         _probeTotal.value = profiles.size
 
@@ -252,8 +283,8 @@ class QobearViewModel(app: Application) : AndroidViewModel(app) {
                     profiles.map { profile ->
                         launch(Dispatchers.IO) {
                             semaphore.withPermit {
-                                val res = OpenVpnLatency.measure(getApplication(), profile, region)
-                                runCatching { repo.updateProfile(profile.id) { it.copy(probe = res) } }
+                                val res = OpenVpnLatency.measure(getApplication(), profile, region, dpi)
+                                repo.updateProfileProbeInMemory(profile.id, res)
                                 _probingIds.update { it - profile.id }
                             }
                         }
@@ -263,6 +294,9 @@ class QobearViewModel(app: Application) : AndroidViewModel(app) {
             } catch (e: Exception) {
                 _bannerMessage.value = e.message ?: "PROBE_FAILED"
             } finally {
+                withContext(NonCancellable + Dispatchers.IO) {
+                    runCatching { repo.persistCatalog() }
+                }
                 _probingIds.value = emptySet()
             }
         }
@@ -325,7 +359,9 @@ class QobearViewModel(app: Application) : AndroidViewModel(app) {
         val priorityCandidates = (data.profiles.filter { it.favorite } + data.profiles)
             .distinctBy { it.id }
             .take(16)
-        val region = settings.value.bypassRegion
+        val currentSettings = settings.value
+        val region = currentSettings.bypassRegion
+        val dpi = currentSettings.dpiBypassEnabled
         _probingIds.value = priorityCandidates.map { it.id }.toSet()
         _probeTotal.value = priorityCandidates.size
 
@@ -336,8 +372,8 @@ class QobearViewModel(app: Application) : AndroidViewModel(app) {
                     priorityCandidates.map { profile ->
                         launch(Dispatchers.IO) {
                             semaphore.withPermit {
-                                val res = OpenVpnLatency.measure(getApplication(), profile, region)
-                                runCatching { repo.updateProfile(profile.id) { it.copy(probe = res) } }
+                                val res = OpenVpnLatency.measure(getApplication(), profile, region, dpi)
+                                repo.updateProfileProbeInMemory(profile.id, res)
                                 _probingIds.update { it - profile.id }
                             }
                         }
@@ -354,6 +390,9 @@ class QobearViewModel(app: Application) : AndroidViewModel(app) {
             } catch (e: Exception) {
                 _bannerMessage.value = e.message ?: "AUTO_PROBE_FAILED"
             } finally {
+                withContext(NonCancellable + Dispatchers.IO) {
+                    runCatching { repo.persistCatalog() }
+                }
                 _probingIds.value = emptySet()
             }
         }
@@ -413,30 +452,18 @@ class QobearViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun setSplitMode(mode: SplitTunnelMode) {
-        splitStore.setMode(mode)
-    }
-
-    fun toggleSplitPackage(packageName: String) {
-        splitStore.togglePackage(packageName)
-    }
-
-    fun applyIranBankPreset() {
-        viewModelScope.launch(Dispatchers.IO) {
-            if (_installedApps.value.isEmpty()) loadInstalledAppsSync()
-            val matches = _installedApps.value
-                .filter { app ->
-                    SplitTunnelStore.IRAN_BANKING_PREFIXES.any { prefix ->
-                        app.packageName.startsWith(prefix, ignoreCase = true)
-                    }
-                }
-                .map { it.packageName }
-            if (matches.isNotEmpty()) {
-                splitStore.addPackages(matches)
-                _bannerMessage.value = "PRESET_ADDED:${matches.size}"
-            } else {
-                _bannerMessage.value = "PRESET_NONE"
-            }
+    fun applySplitTunnelConfig(mode: SplitTunnelMode, packages: Set<String>) {
+        splitStore.save(mode, packages)
+        val conn = connection.value
+        val activeProfile = conn.profileId
+        val activeAccount = conn.accountId
+        if (conn.active && activeProfile != null && activeAccount != null) {
+            val app = getApplication<Application>()
+            OpenVpnRuntime.disconnect(app)
+            OpenVpnRuntime.connect(app, activeProfile, activeAccount)
+            _bannerMessage.value = "SPLIT_SAVED_RECONNECTED"
+        } else {
+            _bannerMessage.value = "SPLIT_SAVED"
         }
     }
 

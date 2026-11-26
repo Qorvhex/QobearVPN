@@ -1,10 +1,7 @@
 package com.qorvhex.qobearvpn.ui.screens
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -43,6 +40,7 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -68,7 +66,14 @@ import com.qorvhex.qobearvpn.ui.theme.VazirmatnFamily
 
 private enum class ServerFilter { ALL, FAVORITES, REACHABLE }
 
-@OptIn(ExperimentalFoundationApi::class)
+@Immutable
+private data class ServerRowUi(
+    val profile: Profile,
+    val flag: String,
+    val displayName: String,
+    val searchKey: String,
+)
+
 @Composable
 fun ServersScreen(
     catalog: QobearCatalog,
@@ -90,33 +95,51 @@ fun ServersScreen(
 
     val isBatchProbing = probingIds.size > 1 && probeTotal > 0
 
-    val filtered = remember(catalog.profiles, query, filter, sortByPing, strings.fa) {
-        val q = query.trim().lowercase()
-        val list = catalog.profiles.filter { profile ->
+    val rows = remember(catalog.profiles, strings.fa) {
+        catalog.profiles.map { profile ->
             val place = CountryGeoMapper.resolve(profile)
-            val matchesQuery = q.isEmpty() ||
-                place.nameFa.lowercase().contains(q) ||
-                place.nameEn.lowercase().contains(q) ||
-                profile.name.lowercase().contains(q) ||
-                (place.isoCode?.lowercase()?.contains(q) == true)
+            val display = place.localizedName(strings.fa)
+            val search = buildString {
+                append(place.nameFa.lowercase())
+                append('|')
+                append(place.nameEn.lowercase())
+                append('|')
+                append(profile.name.lowercase())
+                if (!place.isoCode.isNullOrEmpty()) {
+                    append('|')
+                    append(place.isoCode.lowercase())
+                }
+            }
+            ServerRowUi(
+                profile = profile,
+                flag = place.flag,
+                displayName = display,
+                searchKey = search,
+            )
+        }
+    }
 
+    val filtered = remember(rows, query, filter, sortByPing) {
+        val q = query.trim().lowercase()
+        val list = rows.filter { row ->
+            val matchesQuery = q.isEmpty() || row.searchKey.contains(q)
             val matchesFilter = when (filter) {
                 ServerFilter.ALL -> true
-                ServerFilter.FAVORITES -> profile.favorite
-                ServerFilter.REACHABLE -> profile.probe?.isReachable == true
+                ServerFilter.FAVORITES -> row.profile.favorite
+                ServerFilter.REACHABLE -> row.profile.probe?.isReachable == true
             }
             matchesQuery && matchesFilter
         }
         if (sortByPing) {
             list.sortedWith(
-                compareByDescending<Profile> { it.favorite }
-                    .thenBy { it.probe?.millis ?: Long.MAX_VALUE }
-                    .thenBy { CountryGeoMapper.resolve(it).localizedName(strings.fa) }
+                compareByDescending<ServerRowUi> { it.profile.favorite }
+                    .thenBy { it.profile.probe?.millis ?: Long.MAX_VALUE }
+                    .thenBy { it.displayName }
             )
         } else {
             list.sortedWith(
-                compareByDescending<Profile> { it.favorite }
-                    .thenBy { CountryGeoMapper.resolve(it).localizedName(strings.fa) }
+                compareByDescending<ServerRowUi> { it.profile.favorite }
+                    .thenBy { it.displayName }
             )
         }
     }
@@ -137,7 +160,8 @@ fun ServersScreen(
             Text(
                 text = strings.serversTitle,
                 style = TextStyle(
-                    fontFamily = DotMatrixFamily,
+                    fontFamily = if (strings.fa) VazirmatnFamily else DotMatrixFamily,
+                    fontWeight = FontWeight.Bold,
                     fontSize = 20.sp,
                     color = palette.textPrimary,
                 ),
@@ -346,26 +370,21 @@ fun ServersScreen(
                 }
             }
 
-            items(filtered, key = { it.id }) { profile ->
-                val place = CountryGeoMapper.resolve(profile)
+            items(filtered, key = { it.profile.id }) { row ->
+                val profile = row.profile
                 val isSelected = profile.id == catalog.selectedProfileId
                 val isConnectedHere = connection.active && connection.profileId == profile.id
                 val isProbing = profile.id in probingIds
 
-                val borderColor by animateColorAsState(
-                    targetValue = when {
-                        isConnectedHere -> palette.statusConnected
-                        isSelected -> palette.nothingRed
-                        else -> palette.borderHairline
-                    },
-                    animationSpec = tween(250),
-                    label = "rowBorder",
-                )
+                val borderColor = when {
+                    isConnectedHere -> palette.statusConnected
+                    isSelected -> palette.nothingRed
+                    else -> palette.borderHairline
+                }
 
                 Surface(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .animateItem()
                         .clip(RoundedCornerShape(18.dp))
                         .clickable { onSelectAndConnect(profile) },
                     color = palette.surfaceCard,
@@ -376,12 +395,12 @@ fun ServersScreen(
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 12.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(text = place.flag, fontSize = 26.sp)
+                        Text(text = row.flag, fontSize = 26.sp)
                         Spacer(Modifier.width(10.dp))
 
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = place.localizedName(strings.fa),
+                                text = row.displayName,
                                 color = palette.textPrimary,
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.Bold,

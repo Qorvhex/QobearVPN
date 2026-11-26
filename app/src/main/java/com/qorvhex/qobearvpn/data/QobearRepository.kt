@@ -176,6 +176,20 @@ class QobearRepository private constructor(private val context: Context) {
     }
 
     @Synchronized
+    fun updateProfileProbeInMemory(id: String, probe: ProbeResult) {
+        if (mutable.value.storageError) return
+        mutable.value = mutable.value.copy(
+            profiles = mutable.value.profiles.map { if (it.id == id) it.copy(probe = probe) else it }
+        )
+    }
+
+    @Synchronized
+    fun persistCatalog() {
+        if (mutable.value.storageError) return
+        save(mutable.value)
+    }
+
+    @Synchronized
     fun removeCustomProfile(id: String) {
         val target = mutable.value.profiles.firstOrNull { it.id == id && it.isCustom } ?: return
         val remaining = mutable.value.profiles.filterNot { it.id == target.id }

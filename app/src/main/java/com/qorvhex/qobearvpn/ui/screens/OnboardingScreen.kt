@@ -44,6 +44,8 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -74,9 +76,10 @@ import com.qorvhex.qobearvpn.ui.theme.SpaceMonoFamily
 @Composable
 fun OnboardingScreen(
     initialRegion: BypassRegion,
+    initialDpiBypass: Boolean,
     initialLanguage: AppLanguage,
     onLanguageChange: (AppLanguage) -> Unit,
-    onComplete: (username: String, password: String, region: BypassRegion, language: AppLanguage) -> Unit,
+    onComplete: (username: String, password: String, region: BypassRegion, dpiBypassEnabled: Boolean, language: AppLanguage) -> Unit,
 ) {
     val palette = LocalNothingPalette.current
     val context = LocalContext.current
@@ -84,6 +87,7 @@ fun OnboardingScreen(
 
     var step by rememberSaveable { mutableIntStateOf(0) }
     var selectedRegion by rememberSaveable { mutableStateOf(initialRegion) }
+    var dpiBypassEnabled by rememberSaveable { mutableStateOf(initialDpiBypass) }
     var username by rememberSaveable { mutableStateOf("") }
     // Keep password strictly in volatile Compose memory, never serialized into Activity Bundle
     var password by remember { mutableStateOf("") }
@@ -259,6 +263,49 @@ fun OnboardingScreen(
                             }
                         }
                     }
+
+                    Spacer(Modifier.height(10.dp))
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(18.dp))
+                            .clickable { dpiBypassEnabled = !dpiBypassEnabled },
+                        color = palette.surfaceCard,
+                        shape = RoundedCornerShape(18.dp),
+                        border = BorderStroke(
+                            1.dp,
+                            if (dpiBypassEnabled) palette.nothingRed else palette.borderHairline,
+                        ),
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = strings.dpiBypassLabel,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = palette.textPrimary,
+                                )
+                                Spacer(Modifier.height(2.dp))
+                                Text(
+                                    text = strings.dpiBypassSub,
+                                    fontSize = 11.sp,
+                                    color = palette.textSecondary,
+                                )
+                            }
+                            Spacer(Modifier.width(10.dp))
+                            Switch(
+                                checked = dpiBypassEnabled,
+                                onCheckedChange = { dpiBypassEnabled = it },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = palette.onAccent,
+                                    checkedTrackColor = palette.nothingRed,
+                                ),
+                            )
+                        }
+                    }
                 }
             } else {
                 Column(
@@ -431,7 +478,7 @@ fun OnboardingScreen(
                         if (username.isBlank() || password.isEmpty()) {
                             validationError = strings.credentialValidationError
                         } else {
-                            onComplete(username.trim(), password, selectedRegion, initialLanguage)
+                            onComplete(username.trim(), password, selectedRegion, dpiBypassEnabled, initialLanguage)
                         }
                     },
                     modifier = Modifier

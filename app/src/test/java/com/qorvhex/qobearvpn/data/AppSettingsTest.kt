@@ -6,6 +6,7 @@ import com.qorvhex.qobearvpn.model.Profile
 import com.qorvhex.qobearvpn.model.Remote
 import com.qorvhex.qobearvpn.model.ServerPolicy
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -62,5 +63,16 @@ class AppSettingsTest {
         assertNotNull(BypassRegion.CHINA.relayProfile)
         assertNotNull(BypassRegion.RUSSIA.relayProfile)
         assertNull(BypassRegion.GLOBAL.relayProfile)
+    }
+
+    @Test
+    fun dpiBypassSeparatedFromGeoRegionAndDisabledByDefault() {
+        val defaults = AppSettings()
+        assertFalse(defaults.dpiBypassEnabled)
+
+        BypassRegion.entries.forEach { region ->
+            assertNull(region.effectiveDpiRelay(false))
+            assertNotNull(region.effectiveDpiRelay(true))
+        }
     }
 }

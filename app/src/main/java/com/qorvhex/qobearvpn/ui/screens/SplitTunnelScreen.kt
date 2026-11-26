@@ -1,5 +1,10 @@
 package com.qorvhex.qobearvpn.ui.screens
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -21,10 +26,12 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.AccountBalance
 import androidx.compose.material.icons.rounded.Android
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -58,21 +65,25 @@ import com.qorvhex.qobearvpn.ui.theme.DotMatrixFamily
 import com.qorvhex.qobearvpn.ui.theme.LocalNothingPalette
 import com.qorvhex.qobearvpn.ui.theme.QobearStrings
 import com.qorvhex.qobearvpn.ui.theme.SpaceMonoFamily
+import com.qorvhex.qobearvpn.ui.theme.VazirmatnFamily
 
 @Composable
 fun SplitTunnelScreen(
     config: SplitTunnelConfig,
+    connectionActive: Boolean,
     apps: List<InstalledAppItem>,
     loading: Boolean,
     strings: QobearStrings,
     onLoadApps: () -> Unit,
-    onModeChange: (SplitTunnelMode) -> Unit,
-    onTogglePackage: (String) -> Unit,
-    onApplyIranPreset: () -> Unit,
+    onSave: (SplitTunnelMode, Set<String>) -> Unit,
 ) {
     val palette = LocalNothingPalette.current
     var query by rememberSaveable { mutableStateOf("") }
     var showSystem by rememberSaveable { mutableStateOf(false) }
+    var draftMode by remember(config.mode) { mutableStateOf(config.mode) }
+    var draftPackages by remember(config.packages) { mutableStateOf(config.packages) }
+
+    val hasPendingChanges = draftMode != config.mode || draftPackages != config.packages
 
     LaunchedEffect(Unit) {
         onLoadApps()
@@ -81,7 +92,7 @@ fun SplitTunnelScreen(
     val visibleApps = remember(apps, query, showSystem, config.packages) {
         val q = query.trim().lowercase()
         apps.filter { app ->
-            val visibleByType = showSystem || !app.isSystem || app.packageName in config.packages
+            val visibleByType = showSystem || !app.isSystem || app.packageName in config.packages || app.packageName in draftPackages
             val matchesQuery = q.isEmpty() ||
                 app.label.lowercase().contains(q) ||
                 app.packageName.lowercase().contains(q)
@@ -102,7 +113,8 @@ fun SplitTunnelScreen(
         Text(
             text = strings.splitTitle,
             style = TextStyle(
-                fontFamily = DotMatrixFamily,
+                fontFamily = if (strings.fa) VazirmatnFamily else DotMatrixFamily,
+                fontWeight = FontWeight.Bold,
                 fontSize = 20.sp,
                 color = palette.textPrimary,
             ),
@@ -123,14 +135,14 @@ fun SplitTunnelScreen(
                     SplitTunnelMode.INCLUDE to strings.splitInclude,
                     SplitTunnelMode.EXCLUDE to strings.splitExclude,
                 ).forEach { (mode, label) ->
-                    val active = config.mode == mode
+                    val active = draftMode == mode
                     Box(
                         modifier = Modifier
                             .weight(1f)
                             .height(40.dp)
                             .clip(RoundedCornerShape(999.dp))
                             .background(if (active) palette.nothingRed else palette.surfaceCard)
-                            .clickable { onModeChange(mode) },
+                            .clickable { draftMode = mode },
                         contentAlignment = Alignment.Center,
                     ) {
                         Text(
@@ -150,7 +162,7 @@ fun SplitTunnelScreen(
         Spacer(Modifier.height(8.dp))
 
         Text(
-            text = when (config.mode) {
+            text = when (draftMode) {
                 SplitTunnelMode.ALL -> strings.splitAllSub
                 SplitTunnelMode.INCLUDE -> strings.splitIncludeSub
                 SplitTunnelMode.EXCLUDE -> strings.splitExcludeSub
@@ -159,39 +171,38 @@ fun SplitTunnelScreen(
             fontSize = 12.sp,
         )
 
-        if (config.mode != SplitTunnelMode.ALL) {
-            Spacer(Modifier.height(10.dp))
-
-            // Quick Domestic Banking & Local Apps Preset
-            Surface(
+        AnimatedVisibility(
+            visible = hasPendingChanges,
+            enter = fadeIn() + expandVertically(),
+            exit = fadeOut() + shrinkVertically(),
+        ) {
+            Button(
+                onClick = { onSave(draftMode, draftPackages) },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(16.dp))
-                    .clickable(onClick = onApplyIranPreset),
-                color = palette.surfaceElevated,
-                shape = RoundedCornerShape(16.dp),
-                border = BorderStroke(1.dp, palette.borderHairline),
+                    .padding(top = 10.dp)
+                    .height(48.dp),
+                shape = RoundedCornerShape(999.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = palette.nothingRed,
+                    contentColor = palette.onAccent,
+                ),
             ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.AccountBalance,
-                        contentDescription = null,
-                        tint = palette.nothingRed,
-                        modifier = Modifier.size(18.dp),
-                    )
-                    Spacer(Modifier.width(10.dp))
-                    Text(
-                        text = strings.iranBankPreset,
-                        color = palette.textPrimary,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Medium,
-                    )
-                }
+                Icon(
+                    imageVector = Icons.Rounded.Check,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = if (connectionActive) strings.splitSaveReconnect else strings.splitSave,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                )
             }
+        }
 
+        if (draftMode != SplitTunnelMode.ALL) {
             Spacer(Modifier.height(10.dp))
 
             OutlinedTextField(
@@ -257,12 +268,19 @@ fun SplitTunnelScreen(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     items(visibleApps, key = { it.packageName }) { app ->
-                        val checked = app.packageName in config.packages
+                        val checked = app.packageName in draftPackages
+                        val togglePkg = {
+                            draftPackages = if (app.packageName in draftPackages) {
+                                draftPackages - app.packageName
+                            } else {
+                                draftPackages + app.packageName
+                            }
+                        }
                         Surface(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(16.dp))
-                                .clickable { onTogglePackage(app.packageName) },
+                                .clickable { togglePkg() },
                             color = palette.surfaceCard,
                             shape = RoundedCornerShape(16.dp),
                             border = BorderStroke(
@@ -321,7 +339,13 @@ fun SplitTunnelScreen(
                                 }
                                 Checkbox(
                                     checked = checked,
-                                    onCheckedChange = { onTogglePackage(app.packageName) },
+                                    onCheckedChange = {
+                                        draftPackages = if (app.packageName in draftPackages) {
+                                            draftPackages - app.packageName
+                                        } else {
+                                            draftPackages + app.packageName
+                                        }
+                                    },
                                     colors = CheckboxDefaults.colors(
                                         checkedColor = palette.nothingRed,
                                         checkmarkColor = palette.onAccent,

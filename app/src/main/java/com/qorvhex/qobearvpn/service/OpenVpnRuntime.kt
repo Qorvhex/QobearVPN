@@ -9,12 +9,24 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import java.net.DatagramSocket
+import java.net.Socket
 
 object OpenVpnRuntime {
     internal val mutable = MutableStateFlow(OpenVpnConnection())
     val connection: StateFlow<OpenVpnConnection> = mutable.asStateFlow()
 
+    @Volatile
+    internal var socketProtector: ((Socket) -> Boolean)? = null
+
+    @Volatile
+    internal var datagramProtector: ((DatagramSocket) -> Boolean)? = null
+
     const val SELF_CREDENTIAL = "@profile"
+
+    fun protect(socket: Socket): Boolean = socketProtector?.invoke(socket) ?: true
+
+    fun protect(socket: DatagramSocket): Boolean = datagramProtector?.invoke(socket) ?: true
 
     fun connect(context: Context, profileId: String, accountId: String): Boolean {
         val intent = Intent(context, QobearVpnService::class.java)

@@ -65,6 +65,8 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -196,8 +198,7 @@ fun DotMatrixConnectDial(
 
                         val (dotColor, dotRadius) = when (phase) {
                             ConnectionPhase.CONNECTING, ConnectionPhase.RECONNECTING -> {
-                                val delta = ((angleDeg - radarAngle + 360f) % 360f)
-                                val hit = (1f - (delta / 85f)).coerceIn(0f, 1f)
+                                val hit = sweepIntensity(angleDeg, radarAngle)
                                 val c = if (hit > 0.05f) {
                                     palette.nothingRed.copy(alpha = 0.25f + 0.75f * hit)
                                 } else {
@@ -325,7 +326,7 @@ fun DotMatrixConnectDial(
 }
 
 /**
- * Corner Telegram channel capsule (`@Qorvhex_Channel`) styled cleanly in Nothing OS hardware minimalism.
+ * Corner Telegram channel icon button (`@Qorvhex_Channel`) styled cleanly in Nothing OS hardware minimalism.
  */
 @Composable
 fun QorvhexTelegramBadge(
@@ -336,33 +337,28 @@ fun QorvhexTelegramBadge(
     val palette = LocalNothingPalette.current
     Surface(
         modifier = modifier
-            .clip(RoundedCornerShape(999.dp))
+            .size(42.dp)
+            .clip(CircleShape)
+            .semantics { contentDescription = handle }
             .clickable(onClick = onClick),
         color = palette.surfaceCard,
-        shape = RoundedCornerShape(999.dp),
+        shape = CircleShape,
         border = BorderStroke(1.dp, palette.borderHairline),
     ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
+        Box(contentAlignment = Alignment.Center) {
             TelegramPaperPlaneIcon(
                 tint = palette.nothingRed,
-                modifier = Modifier.size(15.dp),
-            )
-            Spacer(Modifier.width(6.dp))
-            Text(
-                text = handle,
-                style = TextStyle(
-                    fontFamily = SpaceMonoFamily,
-                    fontSize = 11.sp,
-                    color = palette.textPrimary,
-                ),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.size(21.dp),
             )
         }
     }
+}
+
+internal fun sweepIntensity(dotAngleDeg: Float, radarAngleDeg: Float, tailSpanDeg: Float = 85f): Float {
+    val normDot = ((dotAngleDeg % 360f) + 360f) % 360f
+    val normRadar = ((radarAngleDeg % 360f) + 360f) % 360f
+    val trailDelta = ((normRadar - normDot) % 360f + 360f) % 360f
+    return (1f - (trailDelta / tailSpanDeg)).coerceIn(0f, 1f)
 }
 
 @Composable
@@ -553,7 +549,7 @@ fun NothingCapsuleNavBar(
 
             Box(
                 modifier = Modifier
-                    .offset(x = indicatorOffset)
+                    .offset { IntOffset(indicatorOffset.roundToPx(), 0) }
                     .width(itemWidth)
                     .height(48.dp)
                     .clip(RoundedCornerShape(999.dp))

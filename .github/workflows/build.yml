@@ -107,25 +107,38 @@ jobs:
             fi
           done
 
-      - name: Decode release keystore if configured
+      - name: Decode release signing credentials if configured
         id: signing
+        env:
+          PK8_B64: ${{ secrets.QOBEAR_PK8_BASE64 }}
+          X509_B64: ${{ secrets.QOBEAR_X509_BASE64 }}
+          JKS_B64: ${{ secrets.QOBEAR_KEYSTORE_BASE64 }}
         run: |
           IS_RELEASE_PUBLISH=false
           if [[ "${GITHUB_REF}" == refs/tags/v* ]] || [ "${{ inputs.create_release }}" == "true" ]; then
             IS_RELEASE_PUBLISH=true
           fi
-          if [ -n "${{ secrets.QOBEAR_KEYSTORE_BASE64 }}" ]; then
-            echo "${{ secrets.QOBEAR_KEYSTORE_BASE64 }}" | base64 -d > "${{ runner.temp }}/release.jks"
+          if [ -n "$PK8_B64" ] && [ -n "$X509_B64" ]; then
+            printf '%s' "$PK8_B64" | tr -d '[:space:]' | base64 -d > "${{ runner.temp }}/release.pk8"
+            printf '%s' "$X509_B64" | tr -d '[:space:]' | base64 -d > "${{ runner.temp }}/release.x509.pem"
+            chmod 600 "${{ runner.temp }}/release.pk8"
+            echo "pk8_mode=true" >> "$GITHUB_OUTPUT"
+            echo "keystore_path=" >> "$GITHUB_OUTPUT"
+          elif [ -n "$JKS_B64" ]; then
+            printf '%s' "$JKS_B64" | tr -d '[:space:]' | base64 -d > "${{ runner.temp }}/release.jks"
+            chmod 600 "${{ runner.temp }}/release.jks"
+            echo "pk8_mode=false" >> "$GITHUB_OUTPUT"
             echo "keystore_path=${{ runner.temp }}/release.jks" >> "$GITHUB_OUTPUT"
           elif [ "$IS_RELEASE_PUBLISH" == "true" ]; then
-            echo "::error::QOBEAR_KEYSTORE_BASE64 secret is required when publishing a Release."
+            echo "::error::Set QOBEAR_PK8_BASE64 + QOBEAR_X509_BASE64 (or QOBEAR_KEYSTORE_BASE64) secrets before publishing a Release."
             exit 1
           else
-            echo "No QOBEAR_KEYSTORE_BASE64 secret set; falling back to debug-signed release APKs for artifact preview."
+            echo "No release signing secrets set; falling back to debug-signed release APKs for artifact preview."
+            echo "pk8_mode=false" >> "$GITHUB_OUTPUT"
             echo "keystore_path=" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Build Debug and Release APKs (universal + arm64-v8a + armeabi-v7a)
+      - name: Build Release APKs (arm64-v8a + armeabi-v7a + universal)
         env:
           QOBEAR_VERSION_NAME: ${{ steps.meta.outputs.version_name }}
           QOBEAR_VERSION_CODE: ${{ steps.meta.outputs.version_code }}
@@ -133,19 +146,62 @@ jobs:
           QOBEAR_KEYSTORE_PASSWORD: ${{ secrets.QOBEAR_KEYSTORE_PASSWORD }}
           QOBEAR_KEY_ALIAS: ${{ secrets.QOBEAR_KEY_ALIAS }}
           QOBEAR_KEY_PASSWORD: ${{ secrets.QOBEAR_KEY_PASSWORD }}
-        run: ./gradlew assembleDebug assembleRelease --no-daemon
+        run: ./gradlew assembleRelease --no-daemon
 
-      - name: Collect APK outputs
+      - name: Collect and sign Release APKs
+        env:
+          PK8_MODE: ${{ steps.signing.outputs.pk8_mode }}
+          QOBEAR_PK8_PASSWORD: ${{ secrets.QOBEAR_PK8_PASSWORD }}
         run: |
           mkdir -p dist
-          find app/build/outputs/apk -type f -name "*.apk" -exec cp -v {} dist/ \;
+          find app/build/outputs/apk/release -type f -name "*.apk" -exec cp -v {} dist/ \;
+          if [ "$PK8_MODE" == "true" ]; then
+            APKSIGNER="$ANDROID_HOME/build-tools/35.0.0/apksigner"
+            for apk in dist/*.apk; do
+              echo "Signing $apk with Qorvhex pk8/x509.pem..."
+              if [ -n "$QOBEAR_PK8_PASSWORD" ]; then
+                "$APKSIGNER" sign \
+                  --key "${{ runner.temp }}/release.pk8" \
+                  --cert "${{ runner.temp }}/release.x509.pem" \
+                  --key-pass env:QOBEAR_PK8_PASSWORD \
+                  --v1-signing-enabled true \
+                  --v2-signing-enabled true \
+                  --v3-signing-enabled true \
+                  "$apk"
+              else
+                "$APKSIGNER" sign \
+                  --key "${{ runner.temp }}/release.pk8" \
+                  --cert "${{ runner.temp }}/release.x509.pem" \
+                  --v1-signing-enabled true \
+                  --v2-signing-enabled true \
+                  --v3-signing-enabled true \
+                  "$apk"
+              fi
+              "$APKSIGNER" verify --print-certs "$apk"
+            done
+            rm -f "${{ runner.temp }}/release.pk8" "${{ runner.temp }}/release.x509.pem"
+          fi
           ls -lh dist/
 
-      - name: Upload APK build artifacts
+      - name: Upload arm64-v8a Release APK
         uses: actions/upload-artifact@v4
         with:
-          name: QobearVPN-v${{ steps.meta.outputs.version_name }}-APKs
-          path: dist/*.apk
+          name: QobearVPN-v${{ steps.meta.outputs.version_name }}-arm64-v8a
+          path: dist/*-arm64-v8a-release.apk
+          retention-days: 30
+
+      - name: Upload armeabi-v7a Release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: QobearVPN-v${{ steps.meta.outputs.version_name }}-armeabi-v7a
+          path: dist/*-armeabi-v7a-release.apk
+          retention-days: 30
+
+      - name: Upload universal Release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: QobearVPN-v${{ steps.meta.outputs.version_name }}-universal
+          path: dist/*-universal-release.apk
           retention-days: 30
 
       - name: Publish GitHub Release

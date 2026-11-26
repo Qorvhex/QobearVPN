@@ -22,7 +22,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.ContentCopy
-import androidx.compose.material.icons.rounded.DeleteSweep
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Surface
@@ -34,6 +33,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.qorvhex.qobearvpn.data.LogEntry
@@ -41,12 +41,13 @@ import com.qorvhex.qobearvpn.ui.theme.DotMatrixFamily
 import com.qorvhex.qobearvpn.ui.theme.LocalNothingPalette
 import com.qorvhex.qobearvpn.ui.theme.QobearStrings
 import com.qorvhex.qobearvpn.ui.theme.SpaceMonoFamily
+import com.qorvhex.qobearvpn.ui.theme.VazirmatnFamily
 
 @Composable
 fun LogsScreen(
     logs: List<LogEntry>,
     strings: QobearStrings,
-    onClear: () -> Unit,
+    onCopied: () -> Unit,
     onBack: () -> Unit,
 ) {
     val palette = LocalNothingPalette.current
@@ -72,49 +73,35 @@ fun LogsScreen(
                 Spacer(Modifier.width(4.dp))
                 Text(
                     text = strings.viewLogs,
-                    style = TextStyle(fontFamily = DotMatrixFamily, fontSize = 18.sp, color = palette.textPrimary),
+                    style = TextStyle(
+                        fontFamily = if (strings.fa) VazirmatnFamily else DotMatrixFamily,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 18.sp,
+                        color = palette.textPrimary,
+                    ),
                 )
             }
 
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Surface(
+            Surface(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(999.dp))
+                    .clickable {
+                        val text = logs.joinToString("\n") { "[${it.timestamp}] ${it.tag}: ${it.message}" }
+                        clipboard.setText(AnnotatedString(text))
+                        onCopied()
+                    },
+                color = palette.surfaceCard,
+                shape = RoundedCornerShape(999.dp),
+                border = BorderStroke(1.dp, palette.borderHairline),
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.ContentCopy,
+                    contentDescription = "Copy",
+                    tint = palette.textPrimary,
                     modifier = Modifier
-                        .clip(RoundedCornerShape(999.dp))
-                        .clickable {
-                            val text = logs.joinToString("\n") { "[${it.timestamp}] ${it.tag}: ${it.message}" }
-                            clipboard.setText(AnnotatedString(text))
-                        },
-                    color = palette.surfaceCard,
-                    shape = RoundedCornerShape(999.dp),
-                    border = BorderStroke(1.dp, palette.borderHairline),
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.ContentCopy,
-                        contentDescription = "Copy",
-                        tint = palette.textPrimary,
-                        modifier = Modifier
-                            .padding(8.dp)
-                            .size(16.dp),
-                    )
-                }
-
-                Surface(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(999.dp))
-                        .clickable(onClick = onClear),
-                    color = palette.surfaceCard,
-                    shape = RoundedCornerShape(999.dp),
-                    border = BorderStroke(1.dp, palette.borderHairline),
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.DeleteSweep,
-                        contentDescription = strings.clearLogs,
-                        tint = palette.nothingRed,
-                        modifier = Modifier
-                            .padding(8.dp)
-                            .size(16.dp),
-                    )
-                }
+                        .padding(9.dp)
+                        .size(18.dp),
+                )
             }
         }
 
