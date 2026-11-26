@@ -97,9 +97,9 @@ object ProfileRuntime {
 
         val finalLines = mutableListOf<String>()
         if (customDns.isNotEmpty()) {
-            // Prepend ignore filters before any profile directives (first-match-wins in OpenVPN 3)
+            // Prepend ignore filters before any profile directives (first-match-wins in OpenVPN 3).
+            // Note: `pull-filter ignore "dhcp-option DNS"` prefix-matches both DNS and DNS6 in OpenVPN 3 optfilt.hpp.
             finalLines += "pull-filter ignore \"dhcp-option DNS\""
-            finalLines += "pull-filter ignore \"dhcp-option DNS6\""
             finalLines += "pull-filter ignore \"dns\""
         }
         finalLines += lines.filter { it.isNotBlank() }

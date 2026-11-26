@@ -1,9 +1,6 @@
 package com.qorvhex.qobearvpn.ui.screens
 
 import android.content.Intent
-import android.net.Uri
-import android.os.Build
-import android.os.PowerManager
 import android.provider.Settings
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
@@ -313,19 +310,9 @@ fun SettingsScreen(
                     icon = Icons.Rounded.BatteryChargingFull,
                     title = strings.batteryOpt,
                     onClick = {
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                            val pm = context.getSystemService(PowerManager::class.java)
-                            val ignoring = pm?.isIgnoringBatteryOptimizations(context.packageName) == true
-                            val intent = if (!ignoring) {
-                                Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-                                    data = Uri.parse("package:${context.packageName}")
-                                }
-                            } else {
-                                Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
-                            }
-                            runCatching { context.startActivity(intent) }
-                                .onFailure { onReportBanner("NO_INTENT_APP") }
-                        }
+                        val intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                        runCatching { context.startActivity(intent) }
+                            .onFailure { onReportBanner("NO_INTENT_APP") }
                     },
                 )
             }
