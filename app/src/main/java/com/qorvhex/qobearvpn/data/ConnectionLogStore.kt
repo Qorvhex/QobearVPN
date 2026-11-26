@@ -21,8 +21,8 @@ object ConnectionLogStore {
     fun append(tag: String, message: String, isError: Boolean = false) {
         val clean = sanitize(message)
         if (clean.isBlank()) return
-        if (entries.size >= MAX_ENTRIES) entries.removeFirst()
-        entries.addLast(
+        if (entries.size >= MAX_ENTRIES) entries.removeAt(0)
+        entries.add(
             LogEntry(
                 timestamp = timeFormatter.format(Date()),
                 tag = tag,

@@ -97,6 +97,16 @@ jobs:
       - name: Run unit tests and Android Lint
         run: ./gradlew testDebugUnitTest lintDebug lintVitalRelease --no-daemon
 
+      - name: Print Android Lint text report on failure
+        if: failure()
+        run: |
+          for f in app/build/intermediates/lint_intermediate_text_report/*/lintReport*/lint-results-*.txt app/build/reports/lint-results-*.txt; do
+            if [ -f "$f" ]; then
+              echo "=== $f ==="
+              cat "$f"
+            fi
+          done
+
       - name: Decode release keystore if configured
         id: signing
         run: |

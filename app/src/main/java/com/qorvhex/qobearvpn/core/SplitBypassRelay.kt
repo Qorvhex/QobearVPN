@@ -1,6 +1,7 @@
 package com.qorvhex.qobearvpn.core
 
 import android.net.VpnService
+import android.os.Build
 import android.os.ParcelFileDescriptor
 import android.system.Os
 import com.qorvhex.qobearvpn.data.ConnectionLogStore
@@ -241,16 +242,19 @@ class SplitBypassRelay(
         }
     }
 
-    private fun clampWindow(socket: Socket, bytes: Int): Boolean = try {
-        ParcelFileDescriptor.fromSocket(socket).use { pfd ->
-            Os.setsockoptInt(pfd.fileDescriptor, IPPROTO_TCP, TCP_WINDOW_CLAMP, bytes)
+    private fun clampWindow(socket: Socket, bytes: Int): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return false
+        return try {
+            ParcelFileDescriptor.fromSocket(socket).use { pfd ->
+                Os.setsockoptInt(pfd.fileDescriptor, IPPROTO_TCP, TCP_WINDOW_CLAMP, bytes)
+            }
+            true
+        } catch (e: Exception) {
+            if (loggedClampWarning.compareAndSet(false, true)) {
+                ConnectionLogStore.append(TAG, "TCP window clamp unavailable: ${e.message}")
+            }
+            false
         }
-        true
-    } catch (e: Exception) {
-        if (loggedClampWarning.compareAndSet(false, true)) {
-            ConnectionLogStore.append(TAG, "TCP window clamp unavailable: ${e.message}")
-        }
-        false
     }
 
     private fun pump(input: InputStream, output: OutputStream, trace: Trace) {

@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
+import android.os.Build
 import android.os.ParcelFileDescriptor
 import android.system.Os
 import com.qorvhex.qobearvpn.data.ConnectionLogStore
@@ -389,6 +390,7 @@ object OpenVpnLatency {
     }
 
     private fun clampWindow(socket: Socket, bytes: Int) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         runCatching {
             ParcelFileDescriptor.fromSocket(socket).use { pfd ->
                 Os.setsockoptInt(pfd.fileDescriptor, 6, 10, bytes)

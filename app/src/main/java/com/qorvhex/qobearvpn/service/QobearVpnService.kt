@@ -1,5 +1,6 @@
 package com.qorvhex.qobearvpn.service
 
+import android.Manifest
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -17,6 +18,7 @@ import android.os.ParcelFileDescriptor
 import android.service.quicksettings.TileService
 import androidx.annotation.Keep
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 import com.qorvhex.qobearvpn.MainActivity
 import com.qorvhex.qobearvpn.R
 import com.qorvhex.qobearvpn.core.CidrPrefix
@@ -945,6 +947,11 @@ class QobearVpnService : VpnService() {
 
     private fun updateNotification(conn: OpenVpnConnection) {
         if (shuttingDown) return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            return
+        }
         getSystemService(NotificationManager::class.java).notify(
             NOTIFICATION_ID,
             buildNotification(conn),
