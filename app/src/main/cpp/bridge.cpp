@@ -11,8 +11,6 @@
 #include <unordered_map>
 #include <vector>
 
-#include <openvpn/io/io.hpp>
-#include <client/ovpncli.hpp>
 #include <openvpn/client/dns_options.hpp>
 #include "ovpn_config.hpp"
 
@@ -114,7 +112,8 @@ jstring utf8_to_jstring(JNIEnv* env, const std::string& input) {
             utf16.push_back(static_cast<jchar>(0xDC00 + (cp & 0x3FF)));
         }
     }
-    return env->NewString(utf16.empty() ? nullptr : utf16.data(), static_cast<jsize>(utf16.size()));
+    static constexpr jchar kEmptyChar = 0;
+    return env->NewString(utf16.empty() ? &kEmptyChar : utf16.data(), static_cast<jsize>(utf16.size()));
 }
 
 bool contains_sensitive_token(const std::string& line) {

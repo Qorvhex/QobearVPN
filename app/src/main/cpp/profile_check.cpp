@@ -3,14 +3,11 @@
 #include <sstream>
 #include <string>
 
-#include <openvpn/io/io.hpp>
-#include <client/ovpncli.hpp>
 #include "ovpn_config.hpp"
 
 class CheckClient final : public openvpn::ClientAPI::OpenVPNClient {
 public:
     bool tun_builder_new() override { return true; }
-    bool tun_builder_establish_lite() override { return true; }
     int tun_builder_establish() override { return -1; }
     void event(const openvpn::ClientAPI::Event&) override {}
     void acc_event(const openvpn::ClientAPI::AppCustomControlMessageEvent&) override {}

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <openvpn/io/io.hpp>
 #include <client/ovpncli.hpp>
 #include <string>
 #include <utility>
